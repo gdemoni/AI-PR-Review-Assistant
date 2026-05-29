@@ -5,3 +5,10 @@ coverage/
 .DS_Store
 *.log
 .env*
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
