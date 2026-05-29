@@ -1,0 +1,6 @@
+{
+  "name": "PR Review Assistant",
+  "description": "即时分析 GitHub PR 和代码沙盒文件，识别代码安全隐患并提供带有 Ddiff 差异的高质量 AI 重构建议。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
