@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { motion, AnimatePresence } from "motion/react";
 import {
   Merge,
   GitPullRequest,
@@ -112,10 +113,10 @@ export function generateToken(payload: UserPayload): string`,
 };
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<"dashboard" | "sandbox" | "checklist" | "history">("dashboard");
+  const [activeTab, setActiveTab] = useState<"home" | "dashboard" | "sandbox" | "checklist" | "history">("home");
   const [prUrl, setPrUrl] = useState<string>("");
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [statusStep, setStatusStep] = useState<string>("正在初始化扫描器...");
+  const [loadingLogs, setLoadingLogs] = useState<string[]>([]);
   
   // Custom API configuration or secret state
   const [apiError, setApiError] = useState<string | null>(null);
@@ -125,6 +126,7 @@ export default function App() {
   const [selectedFilename, setSelectedFilename] = useState<string>("src/middleware/auth.ts");
   const [appliedSuggestions, setAppliedSuggestions] = useState<Record<string, boolean>>({});
   const [expandedSuggestion, setExpandedSuggestion] = useState<number | null>(0);
+  const [filterLevel, setFilterLevel] = useState<"all" | "critical" | "warning">("all");
 
   // Sandbox Sandbox IDE states
   const [selectedSandboxTemplate, setSelectedSandboxTemplate] = useState<SandboxTemplate>(SANDBOX_TEMPLATES[0]);
@@ -170,24 +172,34 @@ export default function App() {
     setApiError(null);
     
     const steps = [
-      "正在连接目标服务器并拉取源码差异...",
-      "扫描差异补丁中 (Patch parsing)...",
-      "成功提取变更模块，启动 Gemini 3.5 分析中...",
-      "验证代码逻辑、数据清洗规则及异常流分发...",
-      "识别系统高风险漏洞与性能隐患中...",
-      "正编译重构提议与差分补丁..."
+      "🚀 初始化代码审计引擎...",
+      "📡 正在拉取远端 Pull Request 代码差异...",
+      "🔍 我正在检查你的 AuthService 模块...",
+      "⚙️ 扫描 AST 语法树，分析控制流...",
+      "⚠️ 发现潜在的 SQL 注入风险，正在验证上游数据源...",
+      "🛡️ 检查鉴权中间件逻辑，暂未发现提权漏洞...",
+      "⏱️ 性能告警：循环内发现同步数据库查询，正在生成优化建议...",
+      "✨ 代码规范校验完成...",
+      "📝 正在生成最终审计报告及重构差分补丁..."
     ];
 
     let currentStep = 0;
-    setStatusStep(steps[0]);
+    setLoadingLogs([steps[0]]);
     const stepInterval = setInterval(() => {
       currentStep++;
       if (currentStep < steps.length) {
-        setStatusStep(steps[currentStep]);
+        setLoadingLogs(prev => {
+          const newLogs = [...prev, steps[currentStep]];
+          // Keep only the last 4 logs to avoid overflow
+          if (newLogs.length > 4) {
+            return newLogs.slice(newLogs.length - 4);
+          }
+          return newLogs;
+        });
       } else {
         clearInterval(stepInterval);
       }
-    }, 850);
+    }, 1200);
 
     try {
       const response = await fetch("/api/analyze-pr", {
@@ -296,181 +308,186 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-screen bg-bg text-text-primary overflow-hidden select-none font-sans" id="applet-container">
-      {/* Sidebar - styled under the "Sleek Interface" guidelines */}
-      <aside className="w-64 bg-surface border-r border-border-custom flex flex-col justify-between py-6">
-        <div>
-          {/* Logo Area */}
-          <div className="px-6 mb-10 flex items-center gap-3">
-            <div className="w-8 h-8 background: bg-gradient-to-br from-accent-blue to-accent-purple rounded-lg flex items-center justify-center font-bold text-white shadow-md shadow-blue-500/10">
-              <Sparkles className="w-4 h-4 text-white" />
+    <div className="min-h-screen bg-bg text-text-primary font-sans flex flex-col" id="applet-container">
+      {/* Top Navbar */}
+      <header className="sticky top-0 z-50 border-b border-border-custom bg-[#09090b]/80 backdrop-blur-md">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16">
+            <div className="flex items-center gap-8">
+              {/* Logo Area */}
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 bg-gradient-to-br from-accent-blue to-accent-purple rounded-lg flex items-center justify-center font-bold text-white shadow-md shadow-blue-500/10">
+                  <Sparkles className="w-4 h-4 text-white" />
+                </div>
+                <div className="flex flex-col">
+                  <span className="font-bold text-[15px] tracking-tight text-text-primary uppercase">Github AI</span>
+                  <span className="text-[10px] text-text-secondary font-mono tracking-widest uppercase">PR Assistant</span>
+                </div>
+              </div>
+
+              {/* Navigation group */}
+              <nav className="hidden md:flex items-center space-x-1">
+                <button
+                  id="nav-home"
+                  onClick={() => setActiveTab("home")}
+                  className={`px-4 py-2 rounded-lg text-sm transition-all duration-200 flex items-center gap-2 ${
+                    activeTab === "home"
+                      ? "bg-[#18181b] text-text-primary border border-border-custom shadow-inner"
+                      : "text-text-secondary hover:bg-white/[0.03] hover:text-text-primary"
+                  }`}
+                >
+                  <Sparkles className="w-4 h-4" />
+                  <span>首页</span>
+                </button>
+
+                <button
+                  id="nav-dashboard"
+                  onClick={() => setActiveTab("dashboard")}
+                  className={`px-4 py-2 rounded-lg text-sm transition-all duration-200 flex items-center gap-2 ${
+                    activeTab === "dashboard"
+                      ? "bg-[#18181b] text-text-primary border border-border-custom shadow-inner"
+                      : "text-text-secondary hover:bg-white/[0.03] hover:text-text-primary"
+                  }`}
+                >
+                  <Sliders className="w-4 h-4" />
+                  <span>审计看板</span>
+                </button>
+
+                <button
+                  id="nav-sandbox"
+                  onClick={() => setActiveTab("sandbox")}
+                  className={`px-4 py-2 rounded-lg text-sm transition-all duration-200 flex items-center gap-2 ${
+                    activeTab === "sandbox"
+                      ? "bg-[#18181b] text-text-primary border border-border-custom shadow-inner"
+                      : "text-text-secondary hover:bg-white/[0.03] hover:text-text-primary"
+                  }`}
+                >
+                  <Terminal className="w-4 h-4" />
+                  <span>沙盒演练</span>
+                </button>
+
+                <button
+                  id="nav-checklist"
+                  onClick={() => setActiveTab("checklist")}
+                  className={`px-4 py-2 rounded-lg text-sm transition-all duration-200 flex items-center gap-2 ${
+                    activeTab === "checklist"
+                      ? "bg-[#18181b] text-text-primary border border-border-custom shadow-inner"
+                      : "text-text-secondary hover:bg-white/[0.03] hover:text-text-primary"
+                  }`}
+                >
+                  <Shield className="w-4 h-4" />
+                  <span>预检清单</span>
+                </button>
+
+                <button
+                  id="nav-history"
+                  onClick={() => setActiveTab("history")}
+                  className={`px-4 py-2 rounded-lg text-sm transition-all duration-200 flex items-center gap-2 ${
+                    activeTab === "history"
+                      ? "bg-[#18181b] text-text-primary border border-border-custom shadow-inner"
+                      : "text-text-secondary hover:bg-white/[0.03] hover:text-text-primary"
+                  }`}
+                >
+                  <BookOpen className="w-4 h-4" />
+                  <span>审计历史</span>
+                </button>
+              </nav>
             </div>
-            <div className="flex flex-col">
-              <span className="font-bold text-[15px] tracking-tight text-text-primary uppercase">CodePulse AI</span>
-              <span className="text-[10px] text-text-secondary font-mono tracking-widest uppercase">PR reviewer</span>
+
+            <div className="flex items-center gap-6">
+              <div className="hidden lg:flex items-center gap-2">
+                <a 
+                  href="https://ai.studio/build" 
+                  target="_blank" 
+                  rel="noreferrer" 
+                  className="text-text-secondary hover:text-text-primary text-xs flex items-center gap-1 transition-colors"
+                  id="docs-link"
+                >
+                  <span>文档</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+                <span className="text-border-custom">|</span>
+                <a 
+                  href="https://github.com" 
+                  target="_blank" 
+                  rel="noreferrer" 
+                  className="text-text-secondary hover:text-text-primary text-xs flex items-center gap-1 transition-colors"
+                  id="github-link"
+                >
+                  <Github className="w-3.5 h-3.5" />
+                  <span>GitHub</span>
+                </a>
+              </div>
+
+              <div className="hidden lg:block h-5 w-[1px] bg-border-custom"></div>
+
+              <div className="flex items-center gap-3">
+                <div className="text-right hidden sm:block">
+                  <p className="text-xs font-semibold text-text-primary">Sarah Dev</p>
+                  <p className="text-[10px] text-accent-blue font-mono">Principal Auditor</p>
+                </div>
+                <div className="w-8 h-8 rounded-full overflow-hidden border border-border-custom bg-[#18181b] flex items-center justify-center">
+                  <img 
+                    src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150" 
+                    alt="Avatar"
+                    className="w-full h-full object-cover" 
+                  />
+                </div>
+              </div>
             </div>
           </div>
-
-          {/* Navigation group */}
-          <nav className="px-3 space-y-1">
-            <button
-              id="nav-dashboard"
-              onClick={() => setActiveTab("dashboard")}
-              className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm transition-all duration-200 ${
-                activeTab === "dashboard"
-                  ? "bg-[#18181b] text-text-primary border border-border-custom shadow-inner"
-                  : "text-text-secondary hover:bg-white/[0.03] hover:text-text-primary"
-              }`}
-            >
-              <Sliders className="w-4 h-4" />
-              <span>审计看板</span>
-            </button>
-
-            <button
-              id="nav-sandbox"
-              onClick={() => setActiveTab("sandbox")}
-              className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm transition-all duration-200 ${
-                activeTab === "sandbox"
-                  ? "bg-[#18181b] text-text-primary border border-border-custom shadow-inner"
-                  : "text-text-secondary hover:bg-white/[0.03] hover:text-text-primary"
-              }`}
-            >
-              <Terminal className="w-4 h-4" />
-              <span>沙盒演练场</span>
-              <span className="ml-auto bg-accent-blue/10 text-accent-blue text-[9px] font-mono px-1.5 py-0.5 rounded border border-accent-blue/20">
-                可修改
-              </span>
-            </button>
-
-            <button
-              id="nav-checklist"
-              onClick={() => setActiveTab("checklist")}
-              className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm transition-all duration-200 ${
-                activeTab === "checklist"
-                  ? "bg-[#18181b] text-text-primary border border-border-custom shadow-inner"
-                  : "text-text-secondary hover:bg-white/[0.03] hover:text-text-primary"
-              }`}
-            >
-              <Shield className="w-4 h-4" />
-              <span>预检安全清单</span>
-            </button>
-
-            <button
-              id="nav-history"
-              onClick={() => setActiveTab("history")}
-              className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm transition-all duration-200 ${
-                activeTab === "history"
-                  ? "bg-[#18181b] text-text-primary border border-border-custom shadow-inner"
-                  : "text-text-secondary hover:bg-white/[0.03] hover:text-text-primary"
-              }`}
-            >
-              <BookOpen className="w-4 h-4" />
-              <span>扫码审计历史</span>
-              <span className="ml-auto bg-neutral-800 text-text-secondary text-[10px] font-mono px-1.5 py-0.5 rounded-full">
-                {historyReports.length}
-              </span>
-            </button>
-          </nav>
         </div>
+      </header>
 
-        {/* Lower credit / status panel */}
-        <div className="px-4">
-          <div className="bg-white/[0.02] p-4 rounded-xl border border-border-custom">
-            <p className="text-[10px] text-text-secondary uppercase tracking-widest font-mono mb-2">SCAN REVIEWS LIMIT</p>
-            <div className="h-1.5 bg-border-custom rounded-full overflow-hidden mb-2">
-              <div className="w-[85%] h-full bg-gradient-to-r from-accent-blue to-accent-purple rounded-full"></div>
-            </div>
-            <div className="flex justify-between items-center text-xs font-mono">
-              <span className="text-text-secondary">AI Credits Used</span>
-              <span className="text-text-primary font-bold">85 / 100</span>
-            </div>
-          </div>
+      {/* Hero / Form Area */}
+      {!isLoading && activeTab === "home" && (
+        <div className="w-full border-b border-border-custom bg-[#09090b]/40 relative overflow-hidden">
+          {/* Subtle background glow */}
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[300px] bg-accent-blue/10 rounded-full blur-[100px] pointer-events-none"></div>
           
-          <div className="mt-4 flex items-center justify-between text-[11px] text-text-secondary px-2">
-            <div className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 bg-[#10b981] rounded-full animate-pulse"></span>
-              <span>Gemini 引擎就绪</span>
+          <div className="max-w-4xl mx-auto px-4 py-16 text-center relative z-10">
+            {/* Project Introduction */}
+            <div className="mb-14">
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-accent-blue/10 border border-accent-blue/20 text-accent-blue text-xs font-semibold tracking-wide uppercase mb-6">
+                <Sparkles className="w-4 h-4" />
+                <span>新一代代码审查平台</span>
+              </div>
+              <h1 className="text-4xl md:text-5xl font-extrabold text-text-primary mb-6 tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-500">Github AI Pr Assistant</h1>
+              <p className="text-base md:text-lg text-text-secondary leading-relaxed max-w-2xl mx-auto">
+                基于大模型的智能代码审查中枢。自动拉取 GitHub Pull Request，执行深度静态分析、安全漏洞检测与架构重构建议。让每一次合并都安全、高效、优雅。
+              </p>
             </div>
-            <span className="font-mono">v1.2.0</span>
+
+            <div className="bg-[#18181b]/50 border border-border-custom rounded-3xl p-8 backdrop-blur-sm shadow-2xl">
+              <h2 className="text-xl font-bold text-text-primary mb-2 text-left">快速开始审查</h2>
+              <p className="text-sm text-text-secondary mb-8 text-left">输入您的 GitHub Pull Request 链接，立即获取专业漏洞扫描与自动化性能重构建议</p>
+              
+              <form onSubmit={handlePRUrlSubmit} className="relative group w-full mx-auto">
+                <Search className="absolute left-5 top-1/2 -translate-y-1/2 w-5 h-5 text-text-secondary group-focus-within:text-accent-blue transition-colors" />
+                <input
+                  type="text"
+                  placeholder="粘贴 GitHub URL 开始审计... (如: https://github.com/vuejs/core/pull/1)"
+                  className="w-full bg-surface border-2 border-border-custom hover:border-border-custom focus:border-accent-blue focus:ring-0 rounded-full pl-14 pr-36 py-4 text-sm text-text-primary placeholder:text-text-secondary focus:outline-none transition-all duration-300 shadow-xl shadow-black/20"
+                  value={prUrl}
+                  onChange={(e) => setPrUrl(e.target.value)}
+                  disabled={isLoading}
+                />
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 bg-accent-blue hover:bg-blue-600 active:scale-95 text-white font-semibold text-sm px-6 py-2.5 rounded-full transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50 shadow-md"
+                >
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  <span>立即分析</span>
+                </button>
+              </form>
+            </div>
           </div>
         </div>
-      </aside>
+      )}
 
       {/* Main Content Areas */}
-      <main className="flex-1 flex flex-col h-full overflow-hidden bg-bg">
-        {/* Header bar from "Sleek Interface" */}
-        <header className="h-16 border-b border-border-custom flex items-center justify-between px-8 bg-[#09090b]/80 backdrop-blur-md z-40">
-          <div className="flex-1 max-w-xl">
-            <form onSubmit={handlePRUrlSubmit} className="relative group">
-              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-text-secondary group-focus-within:text-accent-blue transition-colors" />
-              <input
-                type="text"
-                placeholder="粘贴 GitHub Pull Request 链接进行智能安全审计..."
-                className="w-full bg-surface border border-border-custom hover:border-border-custom focus:border-accent-blue focus:ring-1 focus:ring-accent-blue rounded-full pl-10 pr-24 py-1.5 text-xs text-text-primary placeholder:text-text-secondary focus:outline-none transition-all duration-300"
-                value={prUrl}
-                onChange={(e) => setPrUrl(e.target.value)}
-                disabled={isLoading}
-              />
-              <button
-                type="submit"
-                disabled={isLoading}
-                className="absolute right-1 top-1/2 -translate-y-1/2 bg-accent-blue hover:bg-blue-600 active:scale-95 text-white font-medium text-[11px] px-4 py-1 rounded-full transition-all flex items-center gap-1 cursor-pointer disabled:opacity-50"
-              >
-                {isLoading ? (
-                  <RefreshCw className="w-3 h-3 animate-spin" />
-                ) : (
-                  <Play className="w-3 h-3 fill-current" />
-                )}
-                <span>分析 PR</span>
-              </button>
-            </form>
-          </div>
-
-          <div className="flex items-center gap-6">
-            <div className="flex items-center gap-2">
-              <a 
-                href="https://ai.studio/build" 
-                target="_blank" 
-                rel="noreferrer" 
-                className="text-text-secondary hover:text-text-primary text-xs flex items-center gap-1 transition-colors"
-                id="docs-link"
-              >
-                <span>文档</span>
-                <ExternalLink className="w-3 h-3" />
-              </a>
-              <span className="text-border-custom">|</span>
-              <a 
-                href="https://github.com" 
-                target="_blank" 
-                rel="noreferrer" 
-                className="text-text-secondary hover:text-text-primary text-xs flex items-center gap-1 transition-colors"
-                id="github-link"
-              >
-                <Github className="w-3.5 h-3.5" />
-                <span>GitHub</span>
-              </a>
-            </div>
-
-            <div className="h-5 w-[1px] bg-border-custom"></div>
-
-            <div className="flex items-center gap-3">
-              <div className="text-right">
-                <p className="text-xs font-semibold text-text-primary">Sarah Dev</p>
-                <p className="text-[10px] text-accent-blue font-mono">Principal Auditor</p>
-              </div>
-              <div className="w-8 h-8 rounded-full overflow-hidden border border-border-custom bg-[#18181b] flex items-center justify-center">
-                <img 
-                  src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150" 
-                  alt="Avatar"
-                  className="w-full h-full object-cover" 
-                />
-              </div>
-            </div>
-          </div>
-        </header>
-
-        {/* Dynamic page components content rendering */}
-        <div className="flex-1 p-8 overflow-y-auto min-h-0">
+      <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           
           {/* API Keys Configuration Banner Warning */}
           {apiError && (
@@ -497,17 +514,48 @@ export default function App() {
 
           {/* Loading Loader Overlay / Interface */}
           {isLoading ? (
-            <div className="h-full flex flex-col items-center justify-center py-20" id="loading-state-container">
-              <div className="relative mb-6">
-                <div className="w-16 h-16 rounded-full border-4 border-accent-blue/10 border-t-accent-blue animate-spin"></div>
-                <Sparkles className="w-5 h-5 text-accent-purple absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 animate-pulse" />
-              </div>
-              <h3 className="text-sm font-semibold text-text-primary tracking-wider mb-2">LUMINA ENGINE SCANNING</h3>
-              <p className="text-xs text-text-secondary pulse-text" id="loading-status-text">{statusStep}</p>
-              
-              <div className="mt-8 text-[11px] font-mono text-text-secondary bg-[#101014] px-4 py-2 rounded border border-border-custom flex items-center gap-2">
-                <Terminal className="w-3.5 h-3.5 text-accent-blue" />
-                <span>[LOG] FETCHED CHANGESETS FROM COMMITS. EXCELENT AUDITING STATUS.</span>
+            <div className="h-full flex flex-col items-center justify-center py-10 min-h-[600px]" id="loading-state-container">
+              <div className="max-w-2xl w-full px-6">
+                <div className="flex items-center gap-6 mb-8 justify-center">
+                  <div className="relative">
+                    <div className="w-16 h-16 rounded-full border-4 border-accent-blue/10 border-t-accent-blue animate-spin"></div>
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <Sparkles className="w-6 h-6 text-accent-purple animate-pulse" />
+                    </div>
+                  </div>
+                  <div className="text-left">
+                    <h3 className="text-xl font-bold text-text-primary tracking-tight">AI 深度审计中</h3>
+                    <p className="text-sm text-text-secondary mt-1">Gemini 正在分析您的代码库，请稍候...</p>
+                  </div>
+                </div>
+
+                <div className="bg-[#09090b]/80 border border-border-custom rounded-2xl p-6 shadow-2xl min-h-[360px] flex flex-col justify-end overflow-hidden relative backdrop-blur-md">
+                  {/* fading out top */}
+                  <div className="absolute top-0 left-0 right-0 h-24 bg-gradient-to-b from-[#09090b] to-transparent z-10 pointer-events-none rounded-t-2xl"></div>
+                  
+                  <div className="space-y-4 flex flex-col justify-end relative z-0">
+                    <AnimatePresence mode="popLayout">
+                      {loadingLogs.map((log, i) => (
+                        <motion.div
+                          key={log}
+                          initial={{ opacity: 0, y: 20, scale: 0.95 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.2 } }}
+                          transition={{ duration: 0.4, type: "spring", stiffness: 200, damping: 20 }}
+                          className="flex items-start gap-4 w-full group"
+                          layout
+                        >
+                          <div className="w-9 h-9 rounded-full bg-accent-blue/10 border border-accent-blue/20 flex items-center justify-center shrink-0 mt-1 transition-all duration-300 group-hover:scale-110 group-hover:shadow-[0_0_15px_rgba(59,130,246,0.3)]">
+                            <Sparkles className="w-4 h-4 text-accent-blue" />
+                          </div>
+                          <div className="bg-[#18181b] border border-border-custom rounded-2xl rounded-tl-sm px-5 py-3.5 shadow-lg flex-1">
+                            <p className="text-[13px] md:text-sm text-text-primary leading-relaxed">{log}</p>
+                          </div>
+                        </motion.div>
+                      ))}
+                    </AnimatePresence>
+                  </div>
+                </div>
               </div>
             </div>
           ) : (
@@ -683,7 +731,10 @@ export default function App() {
                       
                       {/* Risk blocks counters banner */}
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                        <div className="bg-surface border border-red-500/20 p-4 rounded-xl flex items-center gap-3">
+                        <div 
+                          onClick={() => setFilterLevel(filterLevel === "critical" ? "all" : "critical")}
+                          className={`bg-surface border p-4 rounded-xl flex items-center gap-3 cursor-pointer transition-all duration-200 hover:bg-[#141416] hover:-translate-y-0.5 ${filterLevel === "critical" ? "border-red-500 ring-1 ring-red-500/50 shadow-lg shadow-red-500/10" : "border-red-500/20 shadow-sm"}`}
+                        >
                           <AlertTriangle className="w-5 h-5 text-red-500 shrink-0" />
                           <div>
                             <p className="text-[10px] text-text-secondary font-mono uppercase tracking-wider">高危阻断项目</p>
@@ -693,7 +744,10 @@ export default function App() {
                           </div>
                         </div>
 
-                        <div className="bg-surface border border-yellow-500/20 p-4 rounded-xl flex items-center gap-3">
+                        <div 
+                          onClick={() => setFilterLevel(filterLevel === "warning" ? "all" : "warning")}
+                          className={`bg-surface border p-4 rounded-xl flex items-center gap-3 cursor-pointer transition-all duration-200 hover:bg-[#141416] hover:-translate-y-0.5 ${filterLevel === "warning" ? "border-yellow-500 ring-1 ring-yellow-500/50 shadow-lg shadow-yellow-500/10" : "border-yellow-500/20 shadow-sm"}`}
+                        >
                           <Info className="w-5 h-5 text-yellow-500 shrink-0" />
                           <div>
                             <p className="text-[10px] text-text-secondary font-mono uppercase tracking-wider">中度安全性漏洞</p>
@@ -703,11 +757,14 @@ export default function App() {
                           </div>
                         </div>
 
-                        <div className="bg-surface border border-border-custom p-4 rounded-xl flex items-center gap-3">
-                          <CheckCircle2 className="w-5 h-5 text-[#10b981] shrink-0" />
+                        <div 
+                          onClick={() => setFilterLevel("all")}
+                          className={`bg-surface border p-4 rounded-xl flex items-center gap-3 cursor-pointer transition-all duration-200 hover:bg-[#141416] hover:-translate-y-0.5 ${filterLevel === "all" ? "border-accent-blue ring-1 ring-accent-blue/50 shadow-lg shadow-accent-blue/10" : "border-border-custom shadow-sm"}`}
+                        >
+                          <CheckCircle2 className={`w-5 h-5 shrink-0 ${filterLevel === "all" ? "text-accent-blue" : "text-[#10b981]"}`} />
                           <div>
                             <p className="text-[10px] text-text-secondary font-mono uppercase tracking-wider font-semibold">代码审计评分</p>
-                            <p className="text-sm font-bold text-[#10b981] font-mono">
+                            <p className={`text-sm font-bold font-mono ${filterLevel === "all" ? "text-accent-blue" : "text-[#10b981]"}`}>
                               {reviewData.risks.filter(r => r.level === "high").length === 0 ? "A+ EXCELLENT" : "C- CAUTION"}
                             </p>
                           </div>
@@ -724,13 +781,19 @@ export default function App() {
                             </span>
                           </div>
                           <span className="bg-[#18181b] border border-border-custom text-text-secondary text-[10px] font-mono px-2 py-0.5 rounded">
-                            {reviewData.suggestions.length} 深度项
+                            {reviewData.suggestions.filter(s => filterLevel === "all" || s.severity === filterLevel).length} 深度项
                           </span>
                         </div>
 
                         {/* Suggestions Accordion */}
                         <div className="space-y-3.5">
-                          {reviewData.suggestions.map((suggestion, sIdx) => {
+                          {reviewData.suggestions.filter(s => filterLevel === "all" || s.severity === filterLevel).length === 0 ? (
+                            <div className="text-center py-8 text-text-secondary text-sm font-mono bg-[#09090b] rounded-xl border border-border-custom/50">
+                              未发现当前类别的改良提议
+                            </div>
+                          ) : (
+                            reviewData.suggestions.map((suggestion, sIdx) => {
+                              if (filterLevel !== "all" && suggestion.severity !== filterLevel) return null;
                             const dictKey = `${suggestion.file}-${sIdx}`;
                             const isApplied = appliedSuggestions[dictKey];
                             const isExpanded = expandedSuggestion === sIdx;
@@ -855,7 +918,8 @@ export default function App() {
                                 )}
                               </div>
                             );
-                          })}
+                          })
+                        )}
                         </div>
                       </div>
                     </div>
@@ -1018,7 +1082,7 @@ export default function App() {
                       <span>企业级生产代码上架前置安全审查清单</span>
                     </h2>
                     <p className="text-xs text-text-secondary mt-1">
-                      本清单概括了 CodePulse AI 核心扫描漏洞维度，可在本地合入 Pull Request 前自助校验。
+                      本清单概括了 Github AI PR Assistant 核心扫描漏洞维度，可在本地合入 Pull Request 前自助校验。
                     </p>
                   </div>
 
@@ -1169,21 +1233,17 @@ export default function App() {
             </>
           )}
 
-        </div>
-
-        {/* Footer */}
-        <footer className="h-14 border-t border-border-custom bg-[#101014] px-8 flex items-center justify-between font-mono text-[11px] text-text-secondary shrink-0 z-40">
-          <div>
-            © 2026 CodePulse AI. 智能制造卓越工程. 所有系统组件正常运行。
-          </div>
-          <div className="flex gap-4">
-            <a className="hover:text-text-primary transition-colors duration-200" href="#">隐私权政策</a>
-            <a className="hover:text-text-primary transition-colors duration-200" href="#">服务条款</a>
-            <a className="hover:text-text-primary transition-colors duration-200" href="#">安全公告</a>
-            <a className="hover:text-text-primary transition-colors duration-200 text-accent-blue font-semibold" href="#">系统状态: 绿灯正常</a>
-          </div>
-        </footer>
       </main>
+
+      {/* Modern Web Footer */}
+      <footer className="mt-auto border-t border-border-custom bg-[#09090b]">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-12 flex flex-col md:flex-row items-center justify-between font-sans text-xs text-text-secondary gap-4">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-accent-purple" />
+            <span>© 2026 Github AI PR Assistant。版权所有。</span>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }
