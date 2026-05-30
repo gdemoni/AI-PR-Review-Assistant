@@ -1,0 +1,7 @@
+# LangGraph runtime cache (causes watchfiles reload loop)
+.langgraph_api/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
