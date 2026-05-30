@@ -63,19 +63,21 @@ if LLM_PROVIDER not in PROVIDER_CONFIG:
     )
 
 
-def _get_model() -> str:
-    """获取当前供应商的模型名称"""
-    return os.getenv("LLM_MODEL", PROVIDER_CONFIG[LLM_PROVIDER]["default_model"])
+def _get_model(override: Optional[str] = None) -> str:
+    """获取当前供应商的模型名称，优先使用 override"""
+    return override or os.getenv("LLM_MODEL", PROVIDER_CONFIG[LLM_PROVIDER]["default_model"])
 
 
-def _get_api_key() -> str:
-    """获取当前供应商的 API Key"""
+def _get_api_key(override: Optional[str] = None) -> str:
+    """获取当前供应商的 API Key，优先使用 override"""
+    if override:
+        return override
     key_env = PROVIDER_CONFIG[LLM_PROVIDER]["api_key_env"]
     key = os.getenv(key_env)
     if not key:
         raise ValueError(
             f"未配置 {key_env} 环境变量，当前 LLM 供应商为 {LLM_PROVIDER}，"
-            f"请在 .env 文件中设置 {key_env}"
+            f"请在 .env 文件中设置 {key_env} 或通过前端传入 customApiKey"
         )
     return key
 
@@ -83,17 +85,17 @@ def _get_api_key() -> str:
 # ============================================================
 # 核心：统一对话接口
 # ============================================================
-async def _chat(prompt: str) -> str:
-    """向当前 LLM 发送提示词并返回文本响应"""
+async def _chat(prompt: str, model: Optional[str] = None, api_key: Optional[str] = None) -> str:
+    """向当前 LLM 发送提示词并返回文本响应，model/api_key 可选覆盖"""
     from openai import AsyncOpenAI
 
     config = PROVIDER_CONFIG[LLM_PROVIDER]
     client = AsyncOpenAI(
-        api_key=_get_api_key(),
+        api_key=_get_api_key(api_key),
         base_url=config["base_url"],
     )
     response = await client.chat.completions.create(
-        model=_get_model(),
+        model=_get_model(model),
         messages=[{"role": "user", "content": prompt}],
     )
     return response.choices[0].message.content.strip()
@@ -103,10 +105,10 @@ async def _chat(prompt: str) -> str:
 # 公开函数 — 迭代反馈环四 Agent + 旧版兼容
 # ============================================================
 
-async def generate_summary(code_diff: str) -> str:
+async def generate_summary(code_diff: str, model: Optional[str] = None, api_key: Optional[str] = None) -> str:
     """PR 总结: 调用 LLM 生成 PR 中文摘要"""
     prompt = SUMMARY_PROMPT.format(code_diff=code_diff)
-    return await _chat(prompt)
+    return await _chat(prompt, model, api_key)
 
 
 # --- 新版四 Agent ---
@@ -116,6 +118,8 @@ async def analyze_security(
     code_content: str,
     context: str = "",
     critic_feedback: str = "",
+    model: Optional[str] = None,
+    api_key: Optional[str] = None,
 ) -> list[dict]:
     """安全 Agent: 带上下文和 Critic 反馈的深度风险分析 → [{level, message, evidence, file}]"""
     if not context:
@@ -128,7 +132,7 @@ async def analyze_security(
         context=context,
         critic_feedback=critic_feedback,
     )
-    text = await _chat(prompt)
+    text = await _chat(prompt, model, api_key)
     text = text.replace("```json", "").replace("```", "").strip()
     try:
         result = json.loads(text)
@@ -145,6 +149,8 @@ async def analyze_performance(
     filename: str,
     code_content: str,
     context: str = "",
+    model: Optional[str] = None,
+    api_key: Optional[str] = None,
 ) -> list[dict]:
     """性能 Agent: 检测 N+1、大对象分配等问题 → [{level, message, file, severity, suggestion}]"""
     if not context:
@@ -154,7 +160,7 @@ async def analyze_performance(
         code_content=code_content[:4000],
         context=context,
     )
-    text = await _chat(prompt)
+    text = await _chat(prompt, model, api_key)
     text = text.replace("```json", "").replace("```", "").strip()
     try:
         result = json.loads(text)
@@ -171,6 +177,8 @@ async def analyze_quality(
     filename: str,
     code_content: str,
     context: str = "",
+    model: Optional[str] = None,
+    api_key: Optional[str] = None,
 ) -> list[dict]:
     """质量 Agent: 检测命名/重复/复杂度 → [{file, title, description, severity, originalCode, revisedCode, explanation}]"""
     if not context:
@@ -180,7 +188,7 @@ async def analyze_quality(
         code_content=code_content[:4000],
         context=context,
     )
-    text = await _chat(prompt)
+    text = await _chat(prompt, model, api_key)
     text = text.replace("```json", "").replace("```", "").strip()
     try:
         result = json.loads(text)
@@ -208,6 +216,8 @@ async def run_critic(
     security: list[dict],
     performance: list[dict],
     quality: list[dict],
+    model: Optional[str] = None,
+    api_key: Optional[str] = None,
 ) -> dict:
     """Critic Agent: 检查四个 Agent 输出的一致性 → {reassess, missing, confidence, need_rerun}"""
     prompt = CRITIC_PROMPT.format(
@@ -216,7 +226,7 @@ async def run_critic(
         performance=json.dumps(performance, ensure_ascii=False, indent=2),
         quality=json.dumps(quality, ensure_ascii=False, indent=2),
     )
-    text = await _chat(prompt)
+    text = await _chat(prompt, model, api_key)
     text = text.replace("```json", "").replace("```", "").strip()
     try:
         return json.loads(text)
@@ -235,6 +245,8 @@ async def aggregate_results(
     security: list[dict],
     performance: list[dict],
     quality: list[dict],
+    model: Optional[str] = None,
+    api_key: Optional[str] = None,
 ) -> dict:
     """聚合评分: 合并去重排序, 产统一评分 → {overall, security, performance, quality, verdict, verdict_reason}"""
     prompt = AGGREGATE_PROMPT.format(
@@ -243,7 +255,7 @@ async def aggregate_results(
         performance=json.dumps(performance, ensure_ascii=False, indent=2),
         quality=json.dumps(quality, ensure_ascii=False, indent=2),
     )
-    text = await _chat(prompt)
+    text = await _chat(prompt, model, api_key)
     text = text.replace("```json", "").replace("```", "").strip()
     try:
         return json.loads(text)
@@ -264,6 +276,8 @@ async def generate_report(
     security: list[dict],
     performance: list[dict],
     quality: list[dict],
+    model: Optional[str] = None,
+    api_key: Optional[str] = None,
 ) -> str:
     """报告生成: 整合所有产物输出 Markdown 审查报告"""
     prompt = REPORT_PROMPT.format(
@@ -273,15 +287,15 @@ async def generate_report(
         performance=json.dumps(performance, ensure_ascii=False, indent=2),
         quality=json.dumps(quality, ensure_ascii=False, indent=2),
     )
-    return await _chat(prompt)
+    return await _chat(prompt, model, api_key)
 
 
 # --- Planner ---
 
-async def run_planner(files_summary: str) -> dict:
+async def run_planner(files_summary: str, model: Optional[str] = None, api_key: Optional[str] = None) -> dict:
     """Planner: 决定是否启用 Critic loop → {need_critic_loop, max_rounds, reason, priority}"""
     prompt = PLANNER_PROMPT.format(files_summary=files_summary)
-    text = await _chat(prompt)
+    text = await _chat(prompt, model, api_key)
     text = text.replace("```json", "").replace("```", "").strip()
     try:
         return json.loads(text)

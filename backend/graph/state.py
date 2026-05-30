@@ -26,6 +26,9 @@ class PRAnalysisState(TypedDict):
     pr_url: str                        # GitHub PR 链接（可为空）
     sandbox_files: Optional[list]      # 沙盒代码文件 [{filename, content}]
     template_name: Optional[str]       # 模板名称
+    github_token: Optional[str]        # 用户自定义 GitHub Token（覆盖 .env）
+    custom_model: Optional[str]        # 用户自定义模型名（覆盖 .env）
+    custom_api_key: Optional[str]      # 用户自定义 API Key（覆盖 .env）
 
     # ===== PR解析节点 产出 =====
     repo: str                          # 仓库名，如 "gdemoni/myapp"

@@ -47,7 +47,7 @@ async def parse_pr_node(state: PRAnalysisState) -> dict:
             return {"error": f"无法解析 PR 链接: {pr_url}，请确认格式为 https://github.com/owner/repo/pull/123"}
 
         try:
-            info = await fetch_pr_info(parsed["owner"], parsed["repo"], parsed["pr_number"])
+            info = await fetch_pr_info(parsed["owner"], parsed["repo"], parsed["pr_number"], token=state.get("github_token"))
             return {
                 "repo": info["repo"],
                 "pr_title": info["title"],
@@ -81,7 +81,7 @@ async def fetch_diff_node(state: PRAnalysisState) -> dict:
             return {"error": "Diff获取失败: PR 链接格式无效"}
 
         try:
-            files = await fetch_pr_files(parsed["owner"], parsed["repo"], parsed["pr_number"])
+            files = await fetch_pr_files(parsed["owner"], parsed["repo"], parsed["pr_number"], token=state.get("github_token"))
             return {"changed_files": files, "files_count": len(files)}
         except Exception as e:
             return {"error": f"GitHub API 获取 diff 失败: {str(e)}"}
@@ -124,7 +124,7 @@ async def context_builder_node(state: PRAnalysisState) -> dict:
         parsed = parse_pr_url(pr_url)
         if parsed:
             tasks = [
-                fetch_file_context(parsed["owner"], parsed["repo"], f["filename"])
+                fetch_file_context(parsed["owner"], parsed["repo"], f["filename"], token=state.get("github_token"))
                 for f in risky_files
             ]
             results = await asyncio.gather(*tasks)
@@ -158,7 +158,7 @@ async def planner_node(state: PRAnalysisState) -> dict:
         lines.append(f"  - {fn} {'[RISKY]' if is_risky else ''}")
 
     try:
-        profile = await run_planner("\n".join(lines))
+        profile = await run_planner("\n".join(lines), model=state.get("custom_model"), api_key=state.get("custom_api_key"))
     except Exception:
         profile = {"need_critic_loop": False, "max_rounds": 1, "reason": "Planner 调用失败", "priority": []}
 
@@ -191,7 +191,7 @@ async def summarize_node(state: PRAnalysisState) -> dict:
     code_diff = "\n\n".join(code_parts)
 
     try:
-        return {"summary": await generate_summary(code_diff)}
+        return {"summary": await generate_summary(code_diff, model=state.get("custom_model"), api_key=state.get("custom_api_key"))}
     except Exception as e:
         return {"summary": f"LLM 摘要生成失败: {str(e)}"}
 
@@ -280,6 +280,8 @@ async def security_node(state: PRAnalysisState) -> dict:
         state, "security_risks", analyze_security,
         [{"level": "medium", "file": ""}],
         critic_feedback=critic_text,
+        model=state.get("custom_model"),
+        api_key=state.get("custom_api_key"),
     )
 
 
@@ -287,6 +289,8 @@ async def performance_node(state: PRAnalysisState) -> dict:
     return await _run_agent_node(
         state, "performance_issues", analyze_performance,
         [{"level": "medium", "file": ""}],
+        model=state.get("custom_model"),
+        api_key=state.get("custom_api_key"),
     )
 
 
@@ -295,6 +299,8 @@ async def quality_node(state: PRAnalysisState) -> dict:
         state, "quality_issues", analyze_quality,
         [{"file": "", "title": "LLM 调用异常", "severity": "info",
           "description": "", "originalCode": "", "revisedCode": "", "explanation": ""}],
+        model=state.get("custom_model"),
+        api_key=state.get("custom_api_key"),
     )
 
 
@@ -312,7 +318,7 @@ async def critic_node(state: PRAnalysisState) -> dict:
     quality = state.get("quality_issues", [])
 
     try:
-        feedback = await run_critic(summary, security, performance, quality)
+        feedback = await run_critic(summary, security, performance, quality, model=state.get("custom_model"), api_key=state.get("custom_api_key"))
     except Exception:
         feedback = {
             "reassess": [],
@@ -339,7 +345,7 @@ async def aggregate_node(state: PRAnalysisState) -> dict:
     quality = state.get("quality_issues", [])
 
     try:
-        score = await aggregate_results(summary, security, performance, quality)
+        score = await aggregate_results(summary, security, performance, quality, model=state.get("custom_model"), api_key=state.get("custom_api_key"))
     except Exception:
         score = {
             "overall": 0,
@@ -392,7 +398,7 @@ async def report_node(state: PRAnalysisState) -> dict:
     quality = state.get("quality_issues", [])
 
     try:
-        report = await generate_report(summary, score, security, performance, quality)
+        report = await generate_report(summary, score, security, performance, quality, model=state.get("custom_model"), api_key=state.get("custom_api_key"))
     except Exception as e:
         report = f"报告生成失败: {str(e)}"
 

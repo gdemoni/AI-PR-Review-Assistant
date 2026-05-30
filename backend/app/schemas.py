@@ -11,6 +11,10 @@ class AnalyzePRRequest(BaseModel):
     prUrl: Optional[str] = ""
     files: Optional[list] = None  # [{filename: str, content: str}]
     templateName: Optional[str] = None
+    # ===== 用户自定义配置（覆盖 .env）=====
+    githubToken: Optional[str] = None  # GitHub Personal Access Token
+    customModel: Optional[str] = None  # 自定义模型名, 如 "gemini-2.5-flash"
+    customApiKey: Optional[str] = None  # 自定义 LLM API Key
 
 
 # ========== 响应体 ==========

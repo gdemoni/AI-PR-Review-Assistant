@@ -56,6 +56,9 @@ async def analyze_pr(request: AnalyzePRRequest):
         "pr_url": request.prUrl or "",
         "sandbox_files": request.files,
         "template_name": request.templateName,
+        "github_token": request.githubToken,
+        "custom_model": request.customModel,
+        "custom_api_key": request.customApiKey,
         # 以下字段由各节点逐步填充
         "repo": "",
         "pr_title": "",
