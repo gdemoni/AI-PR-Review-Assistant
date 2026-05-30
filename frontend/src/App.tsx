@@ -408,14 +408,14 @@ export default function App() {
                 </a>
                 <span className="text-border-custom">|</span>
                 <a 
-                  href="https://github.com" 
+                  href="https://github.com/gdemoni" 
                   target="_blank" 
                   rel="noreferrer" 
                   className="text-text-secondary hover:text-text-primary text-xs flex items-center gap-1 transition-colors"
                   id="github-link"
                 >
                   <Github className="w-3.5 h-3.5" />
-                  <span>GitHub</span>
+                  <span>gdemoni</span>
                 </a>
               </div>
 
@@ -423,16 +423,21 @@ export default function App() {
 
               <div className="flex items-center gap-3">
                 <div className="text-right hidden sm:block">
-                  <p className="text-xs font-semibold text-text-primary">Sarah Dev</p>
-                  <p className="text-[10px] text-accent-blue font-mono">Principal Auditor</p>
+                  <p className="text-xs font-semibold text-text-primary">gdemoni</p>
+                  <p className="text-[10px] text-accent-blue font-mono">Creator</p>
                 </div>
-                <div className="w-8 h-8 rounded-full overflow-hidden border border-border-custom bg-[#18181b] flex items-center justify-center">
+                <a
+                  href="https://github.com/gdemoni"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="w-8 h-8 rounded-full overflow-hidden border border-border-custom bg-[#18181b] flex items-center justify-center hover:border-accent-blue/50 transition-colors"
+                >
                   <img 
-                    src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150" 
-                    alt="Avatar"
+                    src="https://github.com/gdemoni.png" 
+                    alt="gdemoni GitHub Avatar"
                     className="w-full h-full object-cover" 
                   />
-                </div>
+                </a>
               </div>
             </div>
           </div>
