@@ -36,6 +36,15 @@ class SuggestionItem(BaseModel):
     explanation: str
 
 
+class ScoreBreakdown(BaseModel):
+    overall: int = 0
+    security: int = 0
+    performance: int = 0
+    quality: int = 0
+    verdict: str = ""        # "safe" | "needs_work" | "blocked"
+    verdictReason: str = ""
+
+
 class PRReviewData(BaseModel):
     title: str
     repo: str
@@ -46,6 +55,8 @@ class PRReviewData(BaseModel):
     risks: list[RiskItem]
     changedFiles: list[ChangedFile]
     suggestions: list[SuggestionItem]
+    score: Optional[ScoreBreakdown] = None
+    report: Optional[str] = None
 
 
 class AnalyzePRResponse(BaseModel):
