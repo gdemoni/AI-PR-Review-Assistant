@@ -19,6 +19,15 @@ export interface SuggestionItem {
   explanation: string;
 }
 
+export interface ScoreBreakdown {
+  overall: number;
+  security: number;
+  performance: number;
+  quality: number;
+  verdict: string;
+  verdictReason: string;
+}
+
 export interface PRReviewData {
   title: string;
   repo: string;
@@ -29,6 +38,8 @@ export interface PRReviewData {
   risks: RiskItem[];
   changedFiles: ChangedFile[];
   suggestions: SuggestionItem[];
+  score?: ScoreBreakdown;
+  report?: string;
 }
 
 export interface SandboxTemplate {

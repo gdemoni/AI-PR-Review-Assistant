@@ -245,7 +245,7 @@ export default function App() {
           files: filesToUse || null,
           templateName: templateName || null,
           githubToken: githubToken || null,
-          geminiApiKey: geminiApiKey || null,
+          customApiKey: geminiApiKey || null,
           customModel: customModel || null
         })
       });
