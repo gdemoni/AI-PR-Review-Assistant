@@ -1,10 +1,39 @@
 """API 路由 — 对接前端 POST /api/analyze-pr"""
 
 from fastapi import APIRouter
-from app.schemas import AnalyzePRRequest, AnalyzePRResponse, PRReviewData
+from app.schemas import AnalyzePRRequest, AnalyzePRResponse, PRReviewData, ChangedFile
 from graph import review_graph, PRAnalysisState
 
 router = APIRouter()
+
+
+def _compute_file_risk_level(filename: str, risks: list[dict]) -> str:
+    """根据风险列表计算单个文件的风险等级"""
+    file_risks = [r for r in risks if filename in r.get("message", "")]
+    if not file_risks:
+        return "none"
+    levels = [r.get("level", "low") for r in file_risks]
+    if "high" in levels:
+        return "high"
+    if "medium" in levels:
+        return "medium"
+    return "low"
+
+
+def _map_changed_files(
+    changed_files: list[dict],
+    risks: list[dict],
+) -> list[ChangedFile]:
+    """将工作流产出的 changed_files 映射为前端 ChangedFile 结构"""
+    result = []
+    for f in changed_files:
+        filename = f.get("filename", "")
+        result.append(ChangedFile(
+            filename=filename,
+            riskLevel=_compute_file_risk_level(filename, risks),
+            content=f.get("content") or f.get("patch", ""),
+        ))
+    return result
 
 
 @router.post("/analyze-pr", response_model=AnalyzePRResponse)
@@ -49,6 +78,11 @@ async def analyze_pr(request: AnalyzePRRequest):
                 error=final_state["error"],
             )
 
+        # 将工作流产出的 changed_files 映射为前端 ChangedFile
+        risks = final_state.get("risks", [])
+        changed_files_raw = final_state.get("changed_files", [])
+        mapped_files = _map_changed_files(changed_files_raw, risks)
+
         # 组装成功响应
         return AnalyzePRResponse(
             success=True,
@@ -60,7 +94,7 @@ async def analyze_pr(request: AnalyzePRRequest):
                 filesCount=final_state["files_count"],
                 summary=final_state["summary"],
                 risks=final_state["risks"],
-                changedFiles=final_state["changed_files"],
+                changedFiles=mapped_files,
                 suggestions=final_state["suggestions"],
             ),
         )

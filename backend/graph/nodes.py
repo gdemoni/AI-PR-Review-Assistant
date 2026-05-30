@@ -1,4 +1,10 @@
-"""LangGraph 节点 — 工作流中的 5 个处理节点"""
+"""LangGraph 节点 — 工作流中的 5 个处理节点
+
+analyze_risks_node / generate_suggestions_node 内部用 asyncio.gather
+对多文件并发调用 LLM，避免逐文件串行等待。
+"""
+
+import asyncio
 
 from graph.state import PRAnalysisState
 from graph.tool.github import parse_pr_url, fetch_pr_info, fetch_pr_files
@@ -135,13 +141,20 @@ async def summarize_node(state: PRAnalysisState) -> dict:
 # ============================================================
 # 节点 4: 风险分析节点
 # ============================================================
-async def analyze_risks_node(state: PRAnalysisState) -> dict:
-    """
-    对每个变更文件进行风险扫描，识别高危代码。
+async def _analyze_one_file(f: dict) -> list[dict]:
+    """并发单元：分析单个文件的风险"""
+    filename = f.get("filename", "")
+    content = (f.get("content") or f.get("patch", "")).strip()
+    if not content:
+        return []
+    try:
+        return await analyze_risks(f"{filename}\n{content[:4000]}")
+    except Exception as e:
+        return [{"level": "medium", "message": f"{filename}: LLM 分析异常 - {str(e)[:80]}"}]
 
-    产出 risks: [{level: "high|medium|low", message: "..."}]
-    """
-    state["current_step"] = "风险分析节点: 扫描代码风险..."
+
+async def analyze_risks_node(state: PRAnalysisState) -> dict:
+    state["current_step"] = "风险分析节点: 并发扫描代码风险..."
 
     if state.get("error"):
         return state
@@ -151,20 +164,9 @@ async def analyze_risks_node(state: PRAnalysisState) -> dict:
         state["risks"] = []
         return state
 
-    all_risks = []
-
-    for f in changed_files:
-        filename = f.get("filename", "")
-        content = f.get("content") or f.get("patch", "")
-        if not content.strip():
-            continue
-
-        try:
-            file_risks = await analyze_risks(f"{filename}\n{content[:4000]}")
-            all_risks.extend(file_risks)
-        except Exception as e:
-            all_risks.append({"level": "medium", "message": f"{filename}: LLM 分析异常 - {str(e)[:80]}"})
-
+    # 并发：N 个文件同时调 LLM
+    results = await asyncio.gather(*[_analyze_one_file(f) for f in changed_files])
+    all_risks = [r for batch in results for r in batch]
     state["risks"] = all_risks
     return state
 
@@ -172,14 +174,28 @@ async def analyze_risks_node(state: PRAnalysisState) -> dict:
 # ============================================================
 # 节点 5: 建议生成节点
 # ============================================================
-async def generate_suggestions_node(state: PRAnalysisState) -> dict:
-    """
-    对每个变更文件生成具体的代码改进建议。
+async def _suggest_one_file(f: dict) -> list[dict]:
+    """并发单元：为单个文件生成改进建议"""
+    filename = f.get("filename", "")
+    content = (f.get("content") or f.get("patch", "")).strip()
+    if not content:
+        return []
+    try:
+        return await generate_suggestions(filename, content[:4000])
+    except Exception as e:
+        return [{
+            "file": filename,
+            "title": "LLM 调用异常",
+            "description": f"{str(e)[:100]}",
+            "severity": "info",
+            "originalCode": "",
+            "revisedCode": "",
+            "explanation": "请检查 LLM API Key 是否有效"
+        }]
 
-    产出 suggestions: [{file, title, description, severity,
-                         originalCode, revisedCode, explanation}]
-    """
-    state["current_step"] = "建议生成节点: 生成改进建议..."
+
+async def generate_suggestions_node(state: PRAnalysisState) -> dict:
+    state["current_step"] = "建议生成节点: 并发生成改进建议..."
 
     if state.get("error"):
         return state
@@ -189,27 +205,8 @@ async def generate_suggestions_node(state: PRAnalysisState) -> dict:
         state["suggestions"] = []
         return state
 
-    all_suggestions = []
-
-    for f in changed_files:
-        filename = f.get("filename", "")
-        content = f.get("content") or f.get("patch", "")
-        if not content.strip():
-            continue
-
-        try:
-            file_suggestions = await generate_suggestions(filename, content[:4000])
-            all_suggestions.extend(file_suggestions)
-        except Exception as e:
-            all_suggestions.append({
-                "file": filename,
-                "title": "LLM 调用异常",
-                "description": f"{str(e)[:100]}",
-                "severity": "info",
-                "originalCode": "",
-                "revisedCode": "",
-                "explanation": "请检查 LLM API Key 是否有效"
-            })
-
+    # 并发：N 个文件同时调 LLM
+    results = await asyncio.gather(*[_suggest_one_file(f) for f in changed_files])
+    all_suggestions = [s for batch in results for s in batch]
     state["suggestions"] = all_suggestions
     return state
