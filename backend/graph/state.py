@@ -1,4 +1,20 @@
-"""LangGraph State — 工作流中所有节点共享的状态"""
+"""LangGraph State — 迭代反馈环四 Agent 审查流水线共享状态
+
+流程图:
+  parse_pr → fetch_diff → context_builder → planner
+                                                ↓
+                                ┌─── 4 Agents fan-out ───┐
+                                ↓       ↓      ↓      ↓
+                            summarize security performance quality
+                                ↓       ↓      ↓      ↓
+                                └──────────────────────────┘
+                                                ↓
+                                            critic
+                                                ↓
+                                    need_rerun? → agents(delta)
+                                            ↓(NO)
+                                        aggregate → report → END
+"""
 
 from typing import TypedDict, Optional
 
@@ -10,6 +26,9 @@ class PRAnalysisState(TypedDict):
     pr_url: str                        # GitHub PR 链接（可为空）
     sandbox_files: Optional[list]      # 沙盒代码文件 [{filename, content}]
     template_name: Optional[str]       # 模板名称
+    github_token: Optional[str]        # 用户自定义 GitHub Token（覆盖 .env）
+    custom_model: Optional[str]        # 用户自定义模型名（覆盖 .env）
+    custom_api_key: Optional[str]      # 用户自定义 API Key（覆盖 .env）
 
     # ===== PR解析节点 产出 =====
     repo: str                          # 仓库名，如 "gdemoni/myapp"
@@ -21,14 +40,32 @@ class PRAnalysisState(TypedDict):
     changed_files: list                # [{filename, content, patch}]
     files_count: int                   # 变更文件数
 
-    # ===== PR总结节点 产出 =====
-    summary: str                       # AI 生成的中文摘要
+    # ===== Context Builder 节点 产出 =====
+    risky_files: list                  # 筛选出的风险文件 [{filename, content, patch}]
+    context_data: dict                 # {filename: {funcs, imports, full_file}}
 
-    # ===== 风险分析节点 产出 =====
-    risks: list                        # [{level, message}]
+    # ===== Planner 节点 产出 =====
+    risk_profile: dict                 # {need_critic_loop: bool, max_rounds: int, priority: list}
 
-    # ===== 建议生成节点 产出 =====
-    suggestions: list                  # [{file, title, description, severity, originalCode, revisedCode, explanation}]
+    # ===== 四 Agent 节点产出（fan-out 并发）=====
+    summary: str                       # PR 变更总结
+    security_risks: list               # 安全 Agent → [{level, message, file}]
+    performance_issues: list           # 性能 Agent → [{level, message, file}]
+    quality_issues: list               # 质量 Agent → [{file, title, severity, ...}]
+
+    # ===== Critic 节点 产出 =====
+    critic_feedback: dict              # {reassess: [...], missing: [...], confidence: float, need_rerun: bool}
+
+    # ===== 循环控制 =====
+    round: int                         # 当前 Critic 迭代轮次（从 1 开始）
+
+    # ===== 聚合评分节点 产出 =====
+    aggregate_score: dict              # {overall, security, performance, quality, verdict, verdict_reason}
+    risks: list                        # 合并后的风险列表(向后兼容前端)
+    suggestions: list                  # 合并后的建议列表(向后兼容前端)
+
+    # ===== 报告生成节点 产出 =====
+    final_report: str                  # Markdown 格式最终审查报告
 
     # ===== 流程控制 =====
     error: Optional[str]               # 错误信息

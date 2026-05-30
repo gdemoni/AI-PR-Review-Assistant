@@ -11,6 +11,10 @@ class AnalyzePRRequest(BaseModel):
     prUrl: Optional[str] = ""
     files: Optional[list] = None  # [{filename: str, content: str}]
     templateName: Optional[str] = None
+    # ===== 用户自定义配置（覆盖 .env）=====
+    githubToken: Optional[str] = None  # GitHub Personal Access Token
+    customModel: Optional[str] = None  # 自定义模型名, 如 "gemini-2.5-flash"
+    customApiKey: Optional[str] = None  # 自定义 LLM API Key
 
 
 # ========== 响应体 ==========
@@ -36,6 +40,15 @@ class SuggestionItem(BaseModel):
     explanation: str
 
 
+class ScoreBreakdown(BaseModel):
+    overall: int = 0
+    security: int = 0
+    performance: int = 0
+    quality: int = 0
+    verdict: str = ""        # "safe" | "needs_work" | "blocked"
+    verdictReason: str = ""
+
+
 class PRReviewData(BaseModel):
     title: str
     repo: str
@@ -46,6 +59,8 @@ class PRReviewData(BaseModel):
     risks: list[RiskItem]
     changedFiles: list[ChangedFile]
     suggestions: list[SuggestionItem]
+    score: Optional[ScoreBreakdown] = None
+    report: Optional[str] = None
 
 
 class AnalyzePRResponse(BaseModel):
