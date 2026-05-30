@@ -1,3 +1,6 @@
+# Sensitive
+.env
+
 # LangGraph runtime cache (causes watchfiles reload loop)
 .langgraph_api/
 
