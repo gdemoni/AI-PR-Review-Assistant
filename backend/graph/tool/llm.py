@@ -12,6 +12,7 @@
 
 import os
 import json
+from typing import Optional
 from graph.prompts import (
     SUMMARY_PROMPT,
     PLANNER_PROMPT,

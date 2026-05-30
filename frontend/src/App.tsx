@@ -124,7 +124,7 @@ export default function App() {
   // Dynamic User-supplied Credentials Configuration
   const [githubToken, setGithubToken] = useState<string>(() => localStorage.getItem("github_token") || "");
   const [geminiApiKey, setGeminiApiKey] = useState<string>(() => localStorage.getItem("gemini_api_key") || "");
-  const [customModel, setCustomModel] = useState<string>(() => localStorage.getItem("custom_model") || "gemini-3.5-flash");
+  const [customModel, setCustomModel] = useState<string>(() => localStorage.getItem("custom_model") || "");
 
   // Sync to localStorage
   useEffect(() => {
@@ -581,10 +581,14 @@ export default function App() {
                             value={customModel}
                             onChange={(e) => setCustomModel(e.target.value)}
                           >
-                            <option value="gemini-3.5-flash">Gemini 3.5 Flash (极速响应)</option>
-                            <option value="gemini-2.5-pro">Gemini 2.5 Pro (高级代码审查)</option>
-                            <option value="gemini-2.5-flash">Gemini 2.5 Flash (标准级)</option>
-                            <option value="gemini-1.5-pro">Gemini 1.5 Pro (高密度)</option>
+                            <option value="">使用服务器默认模型</option>
+                            <option value="deepseek-chat">DeepSeek V3 (通用)</option>
+                            <option value="deepseek-reasoner">DeepSeek R1 (深度推理)</option>
+                            <option value="qwen-plus">通义千问 Plus</option>
+                            <option value="qwen-max">通义千问 Max</option>
+                            <option value="glm-4-flash">智谱 GLM-4 Flash</option>
+                            <option value="moonshot-v1-8k">Kimi moonshot-v1</option>
+                            <option value="gpt-4o">OpenAI GPT-4o</option>
                           </select>
                         </div>
                         <div>
