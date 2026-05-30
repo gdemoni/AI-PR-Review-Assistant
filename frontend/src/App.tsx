@@ -121,12 +121,47 @@ export default function App() {
   // Custom API configuration or secret state
   const [apiError, setApiError] = useState<string | null>(null);
 
+  // Dynamic User-supplied Credentials Configuration
+  const [githubToken, setGithubToken] = useState<string>(() => localStorage.getItem("github_token") || "");
+  const [geminiApiKey, setGeminiApiKey] = useState<string>(() => localStorage.getItem("gemini_api_key") || "");
+  const [customModel, setCustomModel] = useState<string>(() => localStorage.getItem("custom_model") || "gemini-3.5-flash");
+
+  // Sync to localStorage
+  useEffect(() => {
+    localStorage.setItem("github_token", githubToken);
+  }, [githubToken]);
+
+  useEffect(() => {
+    localStorage.setItem("gemini_api_key", geminiApiKey);
+  }, [geminiApiKey]);
+
+  useEffect(() => {
+    localStorage.setItem("custom_model", customModel);
+  }, [customModel]);
+
   // Active review data initially pointing to standard beautiful dataset
   const [reviewData, setReviewData] = useState<PRReviewData>(INITIAL_REVIEW_DATA);
   const [selectedFilename, setSelectedFilename] = useState<string>("src/middleware/auth.ts");
   const [appliedSuggestions, setAppliedSuggestions] = useState<Record<string, boolean>>({});
   const [expandedSuggestion, setExpandedSuggestion] = useState<number | null>(0);
   const [filterLevel, setFilterLevel] = useState<"all" | "critical" | "warning">("all");
+
+  // Automatically scroll and expand suggestions matching selected filename
+  useEffect(() => {
+    if (selectedFilename && reviewData && reviewData.suggestions) {
+      const foundIndex = reviewData.suggestions.findIndex(s => s.file === selectedFilename);
+      if (foundIndex !== -1) {
+        setExpandedSuggestion(foundIndex);
+        const timer = setTimeout(() => {
+          const el = document.getElementById(`suggestion-${foundIndex}`);
+          if (el) {
+            el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          }
+        }, 150);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [selectedFilename, reviewData?.suggestions]);
 
   // Sandbox Sandbox IDE states
   const [selectedSandboxTemplate, setSelectedSandboxTemplate] = useState<SandboxTemplate>(SANDBOX_TEMPLATES[0]);
@@ -208,7 +243,10 @@ export default function App() {
         body: JSON.stringify({
           prUrl: urlToUse || prUrl || "",
           files: filesToUse || null,
-          templateName: templateName || null
+          templateName: templateName || null,
+          githubToken: githubToken || null,
+          customApiKey: geminiApiKey || null,
+          customModel: customModel || null
         })
       });
 
@@ -486,6 +524,87 @@ export default function App() {
                   <span>立即分析</span>
                 </button>
               </form>
+
+              {/* Advanced Environment Configurations (GitHub token + LLM API settings) */}
+              <div className="border-t border-border-custom/50 pt-6 mt-8 text-left">
+                <div className="flex items-center gap-2 mb-4">
+                  <Sliders className="w-3.5 h-3.5 text-accent-blue" strokeWidth={2.5} />
+                  <h3 className="text-xs font-bold text-text-primary uppercase tracking-wider">高级审计环境配置 (可选)</h3>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  {/* GitHub Access Token field */}
+                  <div className="bg-[#111113] border border-border-custom/60 rounded-2xl p-5 hover:border-accent-blue/30 transition-colors duration-200 flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center gap-2.5 mb-2.5">
+                        <div className="w-7 h-7 rounded-lg bg-zinc-800/80 flex items-center justify-center text-zinc-300">
+                          <Github className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <span className="text-xs font-bold text-text-primary block">GitHub Access Token</span>
+                          <span className="text-[10px] text-text-secondary">用于读取私有仓库并解除匿名率限制</span>
+                        </div>
+                      </div>
+                      <div className="relative mt-2">
+                        <input
+                          type="password"
+                          placeholder="粘贴您的 GitHub 个人访问令牌 (ghp_***)"
+                          className="w-full bg-[#070708] border border-border-custom rounded-xl px-3.5 py-2.5 text-xs text-text-primary placeholder:text-zinc-600 focus:outline-none focus:border-accent-blue transition-colors font-mono"
+                          value={githubToken}
+                          onChange={(e) => setGithubToken(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                    <span className="text-[10px] text-text-secondary mt-3.5 block leading-relaxed">
+                      💡 如果分析私有库 Pull Request，请务必生成并粘贴拥有 <b>repo scope</b> 的专属 Access Token，系统将以此令牌安全代理拉取代码差分。
+                    </span>
+                  </div>
+
+                  {/* LLM Model Configuration field */}
+                  <div className="bg-[#111113] border border-border-custom/60 rounded-2xl p-5 hover:border-accent-purple/30 transition-colors duration-200 flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center gap-2.5 mb-2.5">
+                        <div className="w-7 h-7 rounded-lg bg-zinc-800/80 flex items-center justify-center text-accent-purple">
+                          <Cpu className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <span className="text-xs font-bold text-[#b49bf0] block">LLM 大模型 API 配置</span>
+                          <span className="text-[10px] text-text-secondary">自定义 Gemini 模型架构与专有接入密钥</span>
+                        </div>
+                      </div>
+                      
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+                        <div>
+                          <label className="text-[10px] text-text-secondary block mb-1">首选审计引擎:</label>
+                          <select
+                            className="w-full bg-[#070708] border border-border-custom rounded-xl px-2 py-2 text-xs text-text-primary focus:outline-none focus:border-accent-purple transition-colors bg-none"
+                            value={customModel}
+                            onChange={(e) => setCustomModel(e.target.value)}
+                          >
+                            <option value="gemini-3.5-flash">Gemini 3.5 Flash (极速响应)</option>
+                            <option value="gemini-2.5-pro">Gemini 2.5 Pro (高级代码审查)</option>
+                            <option value="gemini-2.5-flash">Gemini 2.5 Flash (标准级)</option>
+                            <option value="gemini-1.5-pro">Gemini 1.5 Pro (高密度)</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-text-secondary block mb-1">Gemini API 密钥:</label>
+                          <input
+                            type="password"
+                            placeholder="填写个人密钥 (AIzaSy***)"
+                            className="w-full bg-[#070708] border border-border-custom rounded-xl px-3 py-2 text-xs text-text-primary placeholder:text-zinc-600 focus:outline-none focus:border-accent-purple transition-colors font-mono"
+                            value={geminiApiKey}
+                            onChange={(e) => setGeminiApiKey(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                    <span className="text-[10px] text-text-secondary mt-3 block leading-relaxed">
+                      💡 默认使用服务器后台预设的密钥环境。您亦可填写个人专用 API 密钥，大模型消耗及请求频率限额将归入您个人结算账户。
+                    </span>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
