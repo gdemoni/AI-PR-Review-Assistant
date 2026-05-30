@@ -1,6 +1,11 @@
-"""FastAPI 入口 — 启动命令: uvicorn app.main:app --reload --port 8000"""
+"""FastAPI 入口 — 直接运行: python main.py  或  python app/main.py"""
 
 import os
+import sys
+
+# 确保 backend/ 目录在 Python 搜索路径中
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -30,3 +35,8 @@ app.include_router(router, prefix="/api")
 @app.get("/")
 async def root():
     return {"message": "CodePulse AI Backend is running 🚀"}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("app.main:app", host="0.0.0.0", port=int(os.getenv("PORT", "8000")), reload=True)
