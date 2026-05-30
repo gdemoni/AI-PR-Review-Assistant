@@ -4,4 +4,14 @@ dist/
 coverage/
 .DS_Store
 *.log
-.env*
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# LangGraph
+.langgraph_api/
