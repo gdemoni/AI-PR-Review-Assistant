@@ -582,8 +582,7 @@ export default function App() {
                             onChange={(e) => setCustomModel(e.target.value)}
                           >
                             <option value="">使用服务器默认模型</option>
-                            <option value="deepseek-chat">DeepSeek V3 (通用)</option>
-                            <option value="deepseek-reasoner">DeepSeek R1 (深度推理)</option>
+                            <option value="deepseek-v4-pro">DeepSeek V4 Pro</option>
                             <option value="qwen-plus">通义千问 Plus</option>
                             <option value="qwen-max">通义千问 Max</option>
                             <option value="glm-4-flash">智谱 GLM-4 Flash</option>

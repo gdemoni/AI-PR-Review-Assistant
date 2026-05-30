@@ -32,7 +32,7 @@ LLM_PROVIDER = os.getenv("LLM_PROVIDER", "deepseek").lower()
 PROVIDER_CONFIG = {
     "deepseek": {
         "api_key_env": "DEEPSEEK_API_KEY",
-        "default_model": "deepseek-chat",  # deepseek-chat | deepseek-reasoner
+        "default_model": "deepseek-v4-pro",
         "base_url": "https://api.deepseek.com",
     },
     "qwen": {
