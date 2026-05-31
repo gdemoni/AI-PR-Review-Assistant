@@ -19,10 +19,13 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# CORS 中间件 — 允许前端 localhost:5173 跨域访问
+# CORS 中间件 — 允许的来源从环境变量读取（逗号分隔），默认 localhost:5173
+_origins_env = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173")
+_origins = [o.strip() for o in _origins_env.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

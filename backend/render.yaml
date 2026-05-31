@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: ai-pr-review-backend
+    runtime: python
+    region: singapore
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11"
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: LLM_PROVIDER
+        sync: false
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: GITHUB_TOKEN
+        sync: false
