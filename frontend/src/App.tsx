@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "motion/react";
 import {
   Merge,
   GitPullRequest,
@@ -483,7 +482,7 @@ export default function App() {
       </header>
 
       {/* Hero / Form Area */}
-      {!isLoading && activeTab === "home" && (
+      {activeTab === "home" && (
         <div className="w-full border-b border-border-custom bg-[#09090b]/40 relative overflow-hidden">
           {/* Subtle background glow */}
           <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[300px] bg-accent-blue/10 rounded-full blur-[100px] pointer-events-none"></div>
@@ -639,56 +638,30 @@ export default function App() {
             </div>
           )}
 
-          {/* Loading Loader Overlay / Interface */}
-          {isLoading ? (
-            <div className="h-full flex flex-col items-center justify-center py-10 min-h-[600px]" id="loading-state-container">
-              <div className="max-w-2xl w-full px-6">
-                <div className="flex items-center gap-6 mb-8 justify-center">
-                  <div className="relative">
-                    <div className="w-16 h-16 rounded-full border-4 border-accent-blue/10 border-t-accent-blue animate-spin"></div>
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <Sparkles className="w-6 h-6 text-accent-purple animate-pulse" />
-                    </div>
-                  </div>
-                  <div className="text-left">
-                    <h3 className="text-xl font-bold text-text-primary tracking-tight">AI 深度审计中</h3>
-                    <p className="text-sm text-text-secondary mt-1">Gemini 正在分析您的代码库，请稍候...</p>
-                  </div>
+          {/* 非阻塞顶部进度条 — 审查中可自由切换 Tab */}
+          {isLoading && (
+            <div className="sticky top-0 z-40 w-full bg-[#09090b]/95 backdrop-blur-md border-b border-accent-blue/20 px-4 py-2.5 shadow-lg shadow-accent-blue/5">
+              <div className="max-w-7xl mx-auto flex items-center gap-3">
+                <div className="relative shrink-0">
+                  <div className="w-5 h-5 rounded-full border-2 border-accent-blue/20 border-t-accent-blue animate-spin"></div>
+                  <Sparkles className="w-2.5 h-2.5 text-accent-purple absolute inset-0 m-auto animate-pulse" />
                 </div>
-
-                <div className="bg-[#09090b]/80 border border-border-custom rounded-2xl p-6 shadow-2xl min-h-[360px] flex flex-col justify-end overflow-hidden relative backdrop-blur-md">
-                  {/* fading out top */}
-                  <div className="absolute top-0 left-0 right-0 h-24 bg-gradient-to-b from-[#09090b] to-transparent z-10 pointer-events-none rounded-t-2xl"></div>
-                  
-                  <div className="space-y-4 flex flex-col justify-end relative z-0">
-                    <AnimatePresence mode="popLayout">
-                      {loadingLogs.map((log, i) => (
-                        <motion.div
-                          key={log}
-                          initial={{ opacity: 0, y: 20, scale: 0.95 }}
-                          animate={{ opacity: 1, y: 0, scale: 1 }}
-                          exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.2 } }}
-                          transition={{ duration: 0.4, type: "spring", stiffness: 200, damping: 20 }}
-                          className="flex items-start gap-4 w-full group"
-                          layout
-                        >
-                          <div className="w-9 h-9 rounded-full bg-accent-blue/10 border border-accent-blue/20 flex items-center justify-center shrink-0 mt-1 transition-all duration-300 group-hover:scale-110 group-hover:shadow-[0_0_15px_rgba(59,130,246,0.3)]">
-                            <Sparkles className="w-4 h-4 text-accent-blue" />
-                          </div>
-                          <div className="bg-[#18181b] border border-border-custom rounded-2xl rounded-tl-sm px-5 py-3.5 shadow-lg flex-1">
-                            <p className="text-[13px] md:text-sm text-text-primary leading-relaxed">{log}</p>
-                          </div>
-                        </motion.div>
-                      ))}
-                    </AnimatePresence>
+                <span className="text-sm font-semibold text-text-primary">AI 深度审计中</span>
+              </div>
+              <div className="max-w-7xl mx-auto mt-1.5 space-y-1">
+                {loadingLogs.map((log, i) => (
+                  <div key={i} className="flex items-start gap-2.5">
+                    <div className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${i === loadingLogs.length - 1 ? "bg-accent-blue animate-pulse" : "bg-border-custom"}`}></div>
+                    <p className="text-[11px] text-text-secondary leading-relaxed">{log}</p>
                   </div>
-                </div>
+                ))}
               </div>
             </div>
-          ) : (
-            <>
-              {/* PAGE 1: PR REVIEW DASHBOARD */}
-              {activeTab === "dashboard" && (
+          )}
+
+          <>
+            {/* PAGE 1: PR REVIEW DASHBOARD */}
+            {activeTab === "dashboard" && (
                 <div className="space-y-6" id="dashboard-tab">
                   
                   {/* Dashboard stats cards top line - Sleek Interface style */}
@@ -1358,7 +1331,6 @@ export default function App() {
               )}
 
             </>
-          )}
 
       </main>
 
