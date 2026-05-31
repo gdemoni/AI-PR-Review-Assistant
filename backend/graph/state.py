@@ -1,20 +1,20 @@
-"""LangGraph State — 最多2轮 Critic 复查的四 Agent 审查流水线共享状态
+"""LangGraph State — Summarize + Comprehensive 双 Agent + Critic 最多2轮迭代
 
 流程图:
   parse_pr → fetch_diff → context_builder → planner
                                                 ↓
-                                ┌─── 4 Agents fan-out ───┐
-                                ↓       ↓      ↓      ↓
-                            summarize security performance quality
-                           (仅首轮) (每次)  (每次)  (每次)
-                                ↓       ↓      ↓      ↓
-                                └──────────────────────────┘
-                                                ↓
-                                            critic
-                                                ↓
-                                    need_rerun? AND round<2 → loop_gate
-                                            ↓(NO/已达2轮)
-                                        aggregate → report → END
+                              ┌─── 2 Agents fan-out ──┐
+                              ↓                        ↓
+                          summarize              comprehensive
+                         (仅首轮)          (安全+性能+质量三合一)
+                              ↓                        ↓
+                              └──────────┬─────────────┘
+                                         ↓
+                                      critic
+                                         ↓
+                              need_rerun? AND round<2 → loop_gate
+                                         ↓(NO/已达2轮)
+                                   aggregate → report → END
 """
 
 from typing import TypedDict, Optional

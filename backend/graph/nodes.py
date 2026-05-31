@@ -1,35 +1,33 @@
-"""LangGraph 节点 — 最多2轮 Critic 复查 + 复查轮 planner 重新规划的 12 个处理节点
+"""LangGraph 节点 — Summarize + Comprehensive 双 Agent + Critic 最多2轮迭代的 10 个处理节点
 
 流程图:
   parse_pr → fetch_diff → context_builder → planner
                                                 ↓
-                                ┌─── 4 Agents fan-out ───┐
-                                ↓       ↓      ↓      ↓
-                            summarize security performance quality
-                           (仅首轮) (每次)  (每次)  (每次)
-                                ↓       ↓      ↓      ↓
-                                └──────────────────────────┘
-                                                ↓
-                                            critic
-                                                ↓
-                                    need_rerun? AND round<2 → loop_gate
-                                            ↓(NO/已达2轮)
-                                        aggregate → report → END
+                              ┌─── 2 Agents fan-out ──┐
+                              ↓                        ↓
+                          summarize              comprehensive
+                         (仅首轮)          (安全+性能+质量三合一)
+                              ↓                        ↓
+                              └──────────┬─────────────┘
+                                         ↓
+                                      critic
+                                         ↓
+                              need_rerun? AND round<2 → loop_gate
+                                         ↓(NO/已达2轮)
+                                   aggregate → report → END
 
 重要: 每个节点只返回自己修改的字段，不返回完整 state，
 否则并发 fan-out 时 LangGraph 因多分支写同一 key 报 INVALID_CONCURRENT_GRAPH_UPDATE。
 """
 
 import asyncio
+import json
 
 from graph.state import PRAnalysisState
 from graph.tool.github import parse_pr_url, fetch_pr_info, fetch_pr_files, is_risky_file, fetch_file_context
 from graph.tool.llm import (
     generate_summary,
-    run_planner,
-    analyze_security,
-    analyze_performance,
-    analyze_quality,
+    analyze_comprehensive,
     run_critic,
     aggregate_results,
     generate_report,
@@ -219,56 +217,6 @@ async def summarize_node(state: PRAnalysisState) -> dict:
 # 通用: 单文件分析 helper + Agent 节点工厂
 # ============================================================
 
-async def _analyze_one_file(
-    f: dict,
-    context_data: dict,
-    analyze_fn,
-    fallback: list[dict],
-    **extra,
-) -> list[dict]:
-    """泛型并发单元: 提取上下文 + 调用指定 analyze_fn → list[dict]"""
-    filename = f.get("filename", "")
-    content = (f.get("content") or f.get("patch", "")).strip()
-    if not content:
-        return []
-
-    ctx = context_data.get(filename, {})
-    context_str = (
-        f"函数列表: {', '.join(ctx.get('funcs', [])[:10])}\n"
-        f"依赖: {', '.join(ctx.get('imports', [])[:10])}"
-    ) if ctx else "无额外上下文"
-
-    try:
-        return await analyze_fn(filename, content[:4000], context_str, **extra)
-    except Exception as e:
-        return [{**fb, "message": f"{filename}: LLM 分析异常 - {str(e)[:80]}"} for fb in fallback]
-
-
-async def _run_agent_node(
-    state: PRAnalysisState,
-    result_key: str,
-    analyze_fn,
-    fallback: list[dict],
-    **extra,
-) -> dict:
-    """Agent 节点统一逻辑: gather 所有文件 → 返回 {result_key: [...]}"""
-    if state.get("error"):
-        return {}
-
-    changed_files = state.get("changed_files", [])
-    if not changed_files:
-        return {result_key: []}
-
-    context_data = state.get("context_data", {})
-
-    results = await asyncio.gather(*[
-        _analyze_one_file(f, context_data, analyze_fn, fallback, **extra)
-        for f in changed_files
-    ])
-    all_items = [r for batch in results for r in batch]
-    return {result_key: all_items}
-
-
 def _build_critic_text(feedback: dict, agent_name: str) -> str:
     """从 Critic 反馈中提取针对指定 Agent 的修正提示"""
     if not feedback:
@@ -289,44 +237,53 @@ def _build_critic_text(feedback: dict, agent_name: str) -> str:
 
 
 # ============================================================
-# 节点 6-8: Security / Performance / Quality Agent
+# 节点 6: Comprehensive Agent — 三合一审查（安全+性能+质量）
 # ============================================================
 
-async def security_node(state: PRAnalysisState) -> dict:
+async def comprehensive_node(state: PRAnalysisState) -> dict:
+    """每个风险文件 1 次 LLM 调用，同时输出安全/性能/质量结果"""
+    if state.get("error"):
+        return {}
+
+    changed_files = state.get("changed_files", [])
+    if not changed_files:
+        return {"security_risks": [], "performance_issues": [], "quality_issues": []}
+
+    context_data = state.get("context_data", {})
     feedback = state.get("critic_feedback", {})
-    critic_text = _build_critic_text(feedback, "security")
-    return await _run_agent_node(
-        state, "security_risks", analyze_security,
-        [{"level": "medium", "file": ""}],
-        critic_feedback=critic_text,
-        model=state.get("custom_model"),
-        api_key=state.get("custom_api_key"),
-    )
+    critic_text = _build_critic_text(feedback, "comprehensive")
 
+    async def _analyze_file(f: dict) -> dict:
+        filename = f.get("filename", "")
+        code = f.get("patch") or f.get("content", "")
+        ctx = context_data.get(filename, {})
+        context_str = json.dumps(ctx, ensure_ascii=False, indent=2) if ctx else "无额外上下文"
+        try:
+            return await analyze_comprehensive(
+                filename, code, context_str,
+                critic_feedback=critic_text,
+                model=state.get("custom_model"),
+                api_key=state.get("custom_api_key"),
+            )
+        except Exception:
+            return {"security": [], "performance": [], "quality": []}
 
-async def performance_node(state: PRAnalysisState) -> dict:
-    feedback = state.get("critic_feedback", {})
-    critic_text = _build_critic_text(feedback, "performance")
-    return await _run_agent_node(
-        state, "performance_issues", analyze_performance,
-        [{"level": "medium", "file": ""}],
-        critic_feedback=critic_text,
-        model=state.get("custom_model"),
-        api_key=state.get("custom_api_key"),
-    )
+    results = await asyncio.gather(*[_analyze_file(f) for f in changed_files])
 
+    # 分拆聚合
+    all_security = []
+    all_performance = []
+    all_quality = []
+    for r in results:
+        all_security.extend(r.get("security", []))
+        all_performance.extend(r.get("performance", []))
+        all_quality.extend(r.get("quality", []))
 
-async def quality_node(state: PRAnalysisState) -> dict:
-    feedback = state.get("critic_feedback", {})
-    critic_text = _build_critic_text(feedback, "quality")
-    return await _run_agent_node(
-        state, "quality_issues", analyze_quality,
-        [{"file": "", "title": "LLM 调用异常", "severity": "info",
-          "description": "", "originalCode": "", "revisedCode": "", "explanation": ""}],
-        critic_feedback=critic_text,
-        model=state.get("custom_model"),
-        api_key=state.get("custom_api_key"),
-    )
+    return {
+        "security_risks": all_security,
+        "performance_issues": all_performance,
+        "quality_issues": all_quality,
+    }
 
 
 # ============================================================
