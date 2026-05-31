@@ -33,84 +33,6 @@ import {
 import { PRReviewData, ChangedFile, SuggestionItem, SandboxTemplate } from "./types";
 import { SANDBOX_TEMPLATES } from "./data/templates";
 
-// Default/Initial mock data matching the exact screen requested so the app is instantly rich and beautiful
-const INITIAL_REVIEW_DATA: PRReviewData = {
-  title: "更新身份验证流程与中间件",
-  repo: "acme-corp/frontend-app #420",
-  author: "dev_sarah",
-  authorAvatar: "https://lh3.googleusercontent.com/aida-public/AB6AXuDFxr2GCkD0KudwYL936BiJ7vbq_nOHRyVCki5Xr5tDW4rxh69DVQAIpMP-poi9YP59uLfqLtZbKYRg4U_Y8tK7hrMasx799hlEOxbzVBCb3F1TS9aSpd9udJsVlSU01POOPQMiB41IRZW9pxpqczqzLiFaoeA59d-y0_ATvfmqL80z_Gy6sXw4ErKXtDQT5G0nCdJna1QiS1utSH3AsNFVWJjsA3uE1n6ggGpmR47wHJ1iYJFkjwRwdKRi1Zhkfj3tDhiv5qNCG1I",
-  filesCount: 4,
-  summary: "此 PR 对身份验证中间件进行了重大重构，将会话 Cookie 替换为 JWT。整体结构稳健，但在令牌验证方式上存在严重安全漏洞。`auth.ts` 中的 `verifyToken` 函数缺乏对过期令牌的错误处理，这可能导致未捕获的 Promise 拒绝并引发潜在的服务拒绝攻击。",
-  risks: [
-    { level: "high", message: "身份验证中间件中存在未处理的 Promise 拒绝。" },
-    { level: "medium", message: "用户载荷缺少类型定义。" },
-    { level: "low", message: "Login.tsx 中残留 Console.log。" }
-  ],
-  changedFiles: [
-    {
-      filename: "src/middleware/auth.ts",
-      riskLevel: "high",
-      content: `import jwt from 'jsonwebtoken';\nimport { Request, Response, NextFunction } from 'express';\n\nconst secret = process.env.JWT_SECRET || 'super-secret-key';\n\nexport function verifyToken(req: Request, res: Response, next: NextFunction) {\n  const authHeader = req.headers.authorization;\n  if (!authHeader || !authHeader.startsWith('Bearer ')) {\n    return res.status(401).json({ error: 'No token provided' });\n  }\n\n  const token = authHeader.split(' ')[1];\n\n  // 💣 警告: 未使用 try-catch 处理可能抛出的 TokenExpiredError \n  const decoded = jwt.verify(token, secret);\n  req.user = decoded;\n  \n  next();\n}`
-    },
-    {
-      filename: "src/utils/token.ts",
-      riskLevel: "none",
-      content: `import jwt from 'jsonwebtoken';\n\nconst secret = process.env.JWT_SECRET || 'super-secret-key';\n\nexport function generateToken(payload: any): string {\n  return jwt.sign(payload, secret);\n}`
-    },
-    {
-      filename: "src/components/Login.tsx",
-      riskLevel: "none",
-      content: `import React, { useState } from 'react';\n\nexport default function Login() {\n  const [username, setUsername] = useState('');\n  const [password, setPassword] = useState('');\n\n  const handleSubmit = (e: React.FormEvent) => {\n    e.preventDefault();\n    console.log("Submit credentials", username, password);\n    // login process...\n  };\n\n  return (\n    <div className="login-box">Sign In Form</div>\n  );\n}`
-    },
-    {
-      filename: "package.json",
-      riskLevel: "none",
-      content: `{\n  "name": "enterprise-auth-module",\n  "version": "1.2.0",\n  "dependencies": {\n    "express": "^4.19.0",\n    "jsonwebtoken": "^9.0.2"\n  }\n}`
-    }
-  ],
-  suggestions: [
-    {
-      file: "src/middleware/auth.ts",
-      title: "为令牌验证添加 try/catch 代码块",
-      description: "在 `src/middleware/auth.ts` 中，`jwt.verify` 调用可能会抛出错误。请使用包装器处理 `TokenExpiredError`。",
-      severity: "critical",
-      originalCode: "const decoded = jwt.verify(token, secret);",
-      revisedCode: `// 将原本不安全的代码使用 try-catch 保护
-try {
-  const decoded = jwt.verify(token, secret);
-  req.user = decoded;
-} catch (error) {
-  return res.status(401).json({ error: 'Invalid or expired token' });
-}`,
-      explanation: "jsonwebtoken SDK 的 verify 方法会抛出同步异常（如 TokenExpiredError、JsonWebTokenError）。直接调用而不做 try/catch 保护会导致这些报错冒泡到 Express 的顶层错误处理器；若发生在异步回调中，更容易引发 unhandledRejection 并可能造成整个 Node.js 进程意外崩溃退出从而造成拒绝服务。"
-    },
-    {
-      file: "src/utils/token.ts",
-      title: "使用严格类型的载荷接口",
-      description: "为解码后的 JWT 载荷定义接口，避免依赖 `any` 类型并防止脏数据漏洞。",
-      severity: "warning",
-      originalCode: "export function generateToken(payload: any): string",
-      revisedCode: `export interface UserPayload {
-  id: string;
-  role: string;
-  email: string;
-}
-
-export function generateToken(payload: UserPayload): string`,
-      explanation: "使用 explicitly defined 接口代替 `any` 能够增强 TypeScript 编译器在开发过程中的静态类型检查，使下游中间件和路由逻辑能够安全地消费 `req.user` 下的声明，预防拼写错误或缺少字段引发的运行时逻辑故障。"
-    },
-    {
-      file: "src/components/Login.tsx",
-      title: "移除敏感信息控制台打印",
-      description: "避免将 username 和明文 password 直接使用 console.log 输出到浏览器终端，以防 XSS 获取控制台堆栈窃取。",
-      severity: "info",
-      originalCode: 'console.log("Submit credentials", username, password);',
-      revisedCode: "/* 移除敏感控制台输出 */",
-      explanation: "生产环境中的控制台记录会被各种异常监控、浏览器插件捕获。永远不能打印包括密码、支付令牌之内的任何秘密信息。"
-    }
-  ]
-};
-
 export default function App() {
   const [activeTab, setActiveTab] = useState<"home" | "dashboard" | "sandbox" | "checklist" | "history">("home");
   const [prUrl, setPrUrl] = useState<string>("");
@@ -138,9 +60,9 @@ export default function App() {
     localStorage.setItem("custom_model", customModel);
   }, [customModel]);
 
-  // Active review data initially pointing to standard beautiful dataset
-  const [reviewData, setReviewData] = useState<PRReviewData>(INITIAL_REVIEW_DATA);
-  const [selectedFilename, setSelectedFilename] = useState<string>("src/middleware/auth.ts");
+  // Active review data — initially empty, populated by backend API response
+  const [reviewData, setReviewData] = useState<PRReviewData | null>(null);
+  const [selectedFilename, setSelectedFilename] = useState<string>("");
   const [appliedSuggestions, setAppliedSuggestions] = useState<Record<string, boolean>>({});
   const [expandedSuggestion, setExpandedSuggestion] = useState<number | null>(0);
   const [filterLevel, setFilterLevel] = useState<"all" | "critical" | "warning">("all");
@@ -168,12 +90,8 @@ export default function App() {
   const [activeSandboxFilename, setActiveSandboxFilename] = useState<string>(SANDBOX_TEMPLATES[0].files[0].filename);
   const [sandboxCodeInput, setSandboxCodeInput] = useState<string>(SANDBOX_TEMPLATES[0].files[0].content);
 
-  // Past reports simulated database
-  const [historyReports, setHistoryReports] = useState<{ id: string; title: string; repo: string; author: string; time: string; risksCount: number }[]>([
-    { id: "1", title: "更新身份验证流程与中间件", repo: "acme-corp/frontend-app #420", author: "dev_sarah", time: "10分钟前", risksCount: 3 },
-    { id: "2", title: "添加全局商品排序规则", repo: "enterprise-shop/core #91", author: "jack-refactor", time: "昨日 14:22", risksCount: 0 },
-    { id: "3", title: "修复未定义的空变量注入", repo: "payments/stripe-node #823", author: "sec-expert", time: "2天前", risksCount: 1 }
-  ]);
+  // Past reports — populated automatically after each successful analysis
+  const [historyReports, setHistoryReports] = useState<{ id: string; title: string; repo: string; author: string; time: string; risksCount: number }[]>([]);
 
   // Synchronize sandbox code preview state when template or file changes
   useEffect(() => {
@@ -369,7 +287,7 @@ export default function App() {
   };
 
   // Find currently active file content to display
-  const activeFileObject = reviewData.changedFiles.find(f => f.filename === selectedFilename);
+  const activeFileObject = reviewData?.changedFiles.find(f => f.filename === selectedFilename);
 
   // Copy text helper
   const copyToClipboard = (text: string) => {
@@ -694,7 +612,7 @@ export default function App() {
 
           <>
             {/* PAGE 1: PR REVIEW DASHBOARD */}
-            {activeTab === "dashboard" && (
+            {activeTab === "dashboard" && reviewData && (
                 <div className="space-y-6" id="dashboard-tab">
                   
                   {/* Dashboard stats cards top line - Sleek Interface style */}
@@ -1061,6 +979,34 @@ export default function App() {
                 </div>
               )}
 
+              {/* Dashboard 空状态 — 尚未执行任何审查 */}
+              {activeTab === "dashboard" && !reviewData && (
+                <div className="flex flex-col items-center justify-center py-24 text-center" id="dashboard-empty">
+                  <div className="w-20 h-20 rounded-full bg-accent-blue/10 border border-accent-blue/20 flex items-center justify-center mb-6">
+                    <Sparkles className="w-8 h-8 text-accent-blue" />
+                  </div>
+                  <h3 className="text-lg font-bold text-text-primary mb-2">暂无审查数据</h3>
+                  <p className="text-sm text-text-secondary max-w-md">
+                    请在首页输入一个 GitHub Pull Request 链接开始深度代码审查，
+                    或在沙盒演练场中提交代码进行模拟分析。
+                  </p>
+                  <div className="flex gap-3 mt-6">
+                    <button
+                      onClick={() => setActiveTab("home")}
+                      className="px-5 py-2.5 bg-accent-blue hover:bg-blue-600 text-white rounded-xl text-sm font-semibold transition-all cursor-pointer"
+                    >
+                      前往首页
+                    </button>
+                    <button
+                      onClick={() => setActiveTab("sandbox")}
+                      className="px-5 py-2.5 bg-surface border border-border-custom hover:border-accent-purple/40 text-text-primary rounded-xl text-sm font-semibold transition-all cursor-pointer"
+                    >
+                      沙盒演练
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* PAGE 2: INTERACTIVE SANDBOX PLAYGROUND */}
               {activeTab === "sandbox" && (
                 <div className="space-y-6" id="sandbox-tab">
@@ -1346,10 +1292,6 @@ export default function App() {
                             <button
                               className="px-3.5 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-text-primary border border-border-custom rounded-lg font-sans transition-all cursor-pointer"
                               onClick={() => {
-                                // Jump back and trigger review data reloading from database or matching
-                                if (report.id === "1") {
-                                  setReviewData(INITIAL_REVIEW_DATA);
-                                }
                                 setActiveTab("dashboard");
                               }}
                             >
