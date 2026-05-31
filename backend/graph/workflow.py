@@ -42,11 +42,13 @@ from graph.nodes import (
 
 
 def _should_rerun(state: PRAnalysisState) -> str:
-    """Critic 后的条件路由: 判断是否需要重跑"""
+    """Critic 后的条件路由: 置信度 ≥ 0.5 即不重跑"""
     feedback = state.get("critic_feedback", {})
     round_num = state.get("round", 1)
     max_rounds = state.get("risk_profile", {}).get("max_rounds", 1)
 
+    if feedback.get("confidence", 0) >= 0.5:
+        return "aggregate"
     if feedback.get("need_rerun") and round_num < max_rounds:
         return "loop_gate"
     return "aggregate"

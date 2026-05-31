@@ -167,11 +167,11 @@ async def planner_node(state: PRAnalysisState) -> dict:
         }
         return {"risk_profile": profile}
 
-    # 首轮: 固定策略
+    # 首轮: 固定策略（不触发复查，速度优先）
     profile = {
-        "need_critic_loop": True,
-        "max_rounds": 2,
-        "reason": "固定策略: 始终允许一次 Critic 复查",
+        "need_critic_loop": False,
+        "max_rounds": 1,
+        "reason": "固定策略: 单轮审查，Critic 仅评分不重跑",
         "priority": [],
     }
     return {"risk_profile": profile, "round": current_round}

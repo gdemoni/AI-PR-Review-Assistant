@@ -153,6 +153,15 @@ async def analyze_comprehensive(
 
 # --- Critic / 聚合 / 报告 ---
 
+def _slim(items: list[dict]) -> list[dict]:
+    """去除大字段，Critic / Aggregate 不需要原始代码"""
+    return [
+        {k: v for k, v in item.items()
+         if k not in ("evidence", "originalCode", "revisedCode", "explanation")}
+        for item in items
+    ]
+
+
 async def run_critic(
     summary: str,
     security: list[dict],
@@ -161,12 +170,12 @@ async def run_critic(
     model: Optional[str] = None,
     api_key: Optional[str] = None,
 ) -> dict:
-    """Critic Agent: 检查四个 Agent 输出的一致性 → {reassess, missing, confidence, need_rerun}"""
+    """Critic Agent: 检查综合审查输出的一致性 → {reassess, missing, confidence, need_rerun}"""
     prompt = CRITIC_PROMPT.format(
         summary=summary,
-        security=json.dumps(security, ensure_ascii=False, indent=2),
-        performance=json.dumps(performance, ensure_ascii=False, indent=2),
-        quality=json.dumps(quality, ensure_ascii=False, indent=2),
+        security=json.dumps(_slim(security), ensure_ascii=False, indent=2),
+        performance=json.dumps(_slim(performance), ensure_ascii=False, indent=2),
+        quality=json.dumps(_slim(quality), ensure_ascii=False, indent=2),
     )
     text = await _chat(prompt, model, api_key)
     text = text.replace("```json", "").replace("```", "").strip()
@@ -193,9 +202,9 @@ async def aggregate_results(
     """聚合评分: 合并去重排序, 产统一评分 → {overall, security, performance, quality, verdict, verdict_reason}"""
     prompt = AGGREGATE_PROMPT.format(
         summary=summary,
-        security=json.dumps(security, ensure_ascii=False, indent=2),
-        performance=json.dumps(performance, ensure_ascii=False, indent=2),
-        quality=json.dumps(quality, ensure_ascii=False, indent=2),
+        security=json.dumps(_slim(security), ensure_ascii=False, indent=2),
+        performance=json.dumps(_slim(performance), ensure_ascii=False, indent=2),
+        quality=json.dumps(_slim(quality), ensure_ascii=False, indent=2),
     )
     text = await _chat(prompt, model, api_key)
     text = text.replace("```json", "").replace("```", "").strip()
