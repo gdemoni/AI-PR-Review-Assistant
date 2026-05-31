@@ -102,45 +102,18 @@ COMPREHENSIVE_PROMPT = """你是一位资深全栈代码审查专家。请一次
 没有发现问题的维度返回空数组 []。"""
 
 # ============================================================
-# Critic Agent — 自检修正（审查 comprehensive 三合一输出）
+# Critic Agent — 快速质量复核
 # ============================================================
-CRITIC_PROMPT = """你是一位代码审查的复核专家。请检查综合审查（comprehensive）Agent 的输出是否存在误报或遗漏。
+CRITIC_PROMPT = """快速复核以下审查结果。
 
-**PR 摘要**:
-{summary}
+**PR**: {summary}
+**安全**: {security}
+**性能**: {performance}
+**质量**: {quality}
 
-**安全分析结果**:
-{security}
-
-**性能分析结果**:
-{performance}
-
-**质量分析结果**:
-{quality}
-
-**检查项**:
-1. 安全维度报告的 high/medium 风险是否真的存在？有无误报？
-2. 是否有遗漏（如 Quality 提了但 Security 没标记的安全问题）？
-3. 性能建议是否合理？有无证据支撑？
-4. 三个维度之间有无矛盾（如安全标 high 但性能标 clean）？
-
-**严格按以下 JSON 格式输出**:
-{{
-  "reassess": [
-    {{"agent": "comprehensive", "item_index": 0, "action": "downgrade|remove|confirm", "reason": "..."}}
-  ],
-  "missing": [
-    {{"agent": "comprehensive", "hint": "第45行的 eval() 调用未被标记，请检查"}}
-  ],
-  "confidence": 0.85,
-  "need_rerun": true,
-  "summary": "整体复核结论（中文，一句话）"
-}}
-
-**判断 need_rerun 的规则**:
-- reassess 中存在 downgrade/remove 或 missing 非空 → need_rerun=true
-- confidence < 0.7 → need_rerun=true
-- 其他情况 → need_rerun=false
+仅输出 JSON:
+{{"reassess": [], "missing": [], "confidence": 0.85, "need_rerun": false, "summary": "简短结论"}}
+置信度 < 0.5 才设 need_rerun=true。无明显问题则 reassess/missing 留空。
 """
 
 # ============================================================

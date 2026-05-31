@@ -157,7 +157,7 @@ def _slim(items: list[dict]) -> list[dict]:
     """去除大字段，Critic / Aggregate 不需要原始代码"""
     return [
         {k: v for k, v in item.items()
-         if k not in ("evidence", "originalCode", "revisedCode", "explanation")}
+         if k not in ("evidence", "originalCode", "revisedCode", "explanation", "description", "suggestion")}
         for item in items
     ]
 
