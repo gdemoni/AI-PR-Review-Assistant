@@ -200,43 +200,14 @@ export default function App() {
     );
   };
 
-  // Run Real AI analysis via our server backend route
+  // Run Real AI analysis — 流式 SSE 读取后端真实步骤
   const triggerPRAnalysis = async (urlToUse?: string, filesToUse?: { filename: string; content: string }[], templateName?: string) => {
     setIsLoading(true);
     setApiError(null);
-    
-    const steps = [
-      "🚀 初始化代码审计引擎...",
-      "📡 正在拉取远端 Pull Request 代码差异...",
-      "🔍 我正在检查你的 AuthService 模块...",
-      "⚙️ 扫描 AST 语法树，分析控制流...",
-      "⚠️ 发现潜在的 SQL 注入风险，正在验证上游数据源...",
-      "🛡️ 检查鉴权中间件逻辑，暂未发现提权漏洞...",
-      "⏱️ 性能告警：循环内发现同步数据库查询，正在生成优化建议...",
-      "✨ 代码规范校验完成...",
-      "📝 正在生成最终审计报告及重构差分补丁..."
-    ];
-
-    let currentStep = 0;
-    setLoadingLogs([steps[0]]);
-    const stepInterval = setInterval(() => {
-      currentStep++;
-      if (currentStep < steps.length) {
-        setLoadingLogs(prev => {
-          const newLogs = [...prev, steps[currentStep]];
-          // Keep only the last 4 logs to avoid overflow
-          if (newLogs.length > 4) {
-            return newLogs.slice(newLogs.length - 4);
-          }
-          return newLogs;
-        });
-      } else {
-        clearInterval(stepInterval);
-      }
-    }, 1200);
+    setLoadingLogs([]);
 
     try {
-      const response = await fetch("/api/analyze-pr", {
+      const response = await fetch("/api/analyze-pr/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -249,33 +220,95 @@ export default function App() {
         })
       });
 
-      const resJson = await response.json();
-      clearInterval(stepInterval);
+      if (!response.ok) {
+        throw new Error(`请求失败: HTTP ${response.status}`);
+      }
 
-      if (resJson.success && resJson.data) {
-        setReviewData(resJson.data);
-        setSelectedFilename(resJson.data.changedFiles[0]?.filename || "");
-        setAppliedSuggestions({}); // Reset applied status
-        setExpandedSuggestion(0);
-        
-        // Add to history reports
-        const newReport = {
-          id: String(Date.now()),
-          title: resJson.data.title,
-          repo: resJson.data.repo,
-          author: resJson.data.author,
-          time: "刚刚",
-          risksCount: resJson.data.risks.length
-        };
-        setHistoryReports(prev => [newReport, ...prev]);
-        
-        // Switch view back to dashboard
-        setActiveTab("dashboard");
+      const contentType = response.headers.get("content-type") || "";
+
+      if (contentType.includes("text/event-stream")) {
+        // === SSE 流式读取: 实时接收后端推送的步骤名称 ===
+        const reader = response.body!.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              try {
+                const event = JSON.parse(line.slice(6));
+
+                if (event.step) {
+                  setLoadingLogs(prev => {
+                    const newLogs = [...prev, event.step];
+                    return newLogs.length > 6 ? newLogs.slice(-6) : newLogs;
+                  });
+                }
+
+                if (event.done && event.result) {
+                  const resJson = event.result;
+                  if (resJson.success && resJson.data) {
+                    setReviewData(resJson.data);
+                    setSelectedFilename(resJson.data.changedFiles[0]?.filename || "");
+                    setAppliedSuggestions({});
+                    setExpandedSuggestion(0);
+
+                    const newReport = {
+                      id: String(Date.now()),
+                      title: resJson.data.title,
+                      repo: resJson.data.repo,
+                      author: resJson.data.author,
+                      time: "刚刚",
+                      risksCount: resJson.data.risks.length
+                    };
+                    setHistoryReports(prev => [newReport, ...prev]);
+                    setActiveTab("dashboard");
+                  } else {
+                    setApiError(resJson.error || "发生了未知错误");
+                  }
+                }
+
+                if (event.error) {
+                  setApiError(event.error);
+                }
+              } catch {
+                // 跳过无法解析的行
+              }
+            }
+          }
+        }
       } else {
-        setApiError(resJson.error || "发生了未知错误，可能尚未配置 GEMINI_API_KEY。");
+        // === 非流式 JSON 回退（兼容旧版后端）===
+        const resJson = await response.json();
+
+        if (resJson.success && resJson.data) {
+          setReviewData(resJson.data);
+          setSelectedFilename(resJson.data.changedFiles[0]?.filename || "");
+          setAppliedSuggestions({});
+          setExpandedSuggestion(0);
+
+          const newReport = {
+            id: String(Date.now()),
+            title: resJson.data.title,
+            repo: resJson.data.repo,
+            author: resJson.data.author,
+            time: "刚刚",
+            risksCount: resJson.data.risks.length
+          };
+          setHistoryReports(prev => [newReport, ...prev]);
+          setActiveTab("dashboard");
+        } else {
+          setApiError(resJson.error || "发生了未知错误，可能尚未配置 API Key。");
+        }
       }
     } catch (err: any) {
-      clearInterval(stepInterval);
       setApiError(err.message || "请求服务器端点超时或失败。");
     } finally {
       setIsLoading(false);
