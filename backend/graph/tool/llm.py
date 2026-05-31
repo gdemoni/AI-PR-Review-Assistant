@@ -106,9 +106,9 @@ async def _chat(prompt: str, model: Optional[str] = None, api_key: Optional[str]
 # 公开函数 — 迭代反馈环四 Agent + 旧版兼容
 # ============================================================
 
-async def generate_summary(code_diff: str, model: Optional[str] = None, api_key: Optional[str] = None) -> str:
-    """PR 总结: 调用 LLM 生成 PR 中文摘要"""
-    prompt = SUMMARY_PROMPT.format(code_diff=code_diff)
+async def generate_summary(code_diff: str, pr_title: str = "", file_count: int = 0, model: Optional[str] = None, api_key: Optional[str] = None) -> str:
+    """PR 总结: 调用 LLM 生成 PR 中文摘要（含 PR 标题 + 文件数上下文）"""
+    prompt = SUMMARY_PROMPT.format(code_diff=code_diff, pr_title=pr_title, file_count=file_count)
     return await _chat(prompt, model, api_key)
 
 
