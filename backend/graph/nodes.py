@@ -1,4 +1,4 @@
-"""LangGraph 节点 — 迭代反馈环 11 个处理节点
+"""LangGraph 节点 — 最多2轮 Critic 复查 + 复查轮 planner 重新规划的 12 个处理节点
 
 流程图:
   parse_pr → fetch_diff → context_builder → planner
@@ -6,13 +6,14 @@
                                 ┌─── 4 Agents fan-out ───┐
                                 ↓       ↓      ↓      ↓
                             summarize security performance quality
+                           (仅首轮) (每次)  (每次)  (每次)
                                 ↓       ↓      ↓      ↓
                                 └──────────────────────────┘
                                                 ↓
                                             critic
                                                 ↓
-                                    need_rerun? → loop_gate
-                                            ↓(NO)
+                                    need_rerun? AND round<2 → loop_gate
+                                            ↓(NO/已达2轮)
                                         aggregate → report → END
 
 重要: 每个节点只返回自己修改的字段，不返回完整 state，
@@ -135,37 +136,47 @@ async def context_builder_node(state: PRAnalysisState) -> dict:
 
 
 # ============================================================
-# 节点 4: Planner — 分析决策
+# 节点 4: Planner — 首轮固定策略 + 复查轮基于 Critic 反馈重新规划
 # ============================================================
 async def planner_node(state: PRAnalysisState) -> dict:
-    """决定是否启用 Critic loop 及最大轮次"""
+    """首轮返回固定策略；复查轮基于 Critic 反馈生成针对性的重跑计划"""
     if state.get("error"):
         return {}
 
-    # 重跑时无需重新 planner，只更新 round
     current_round = state.get("round", 1)
+
     if current_round > 1:
-        return {"round": current_round + 1}
+        # 复查轮: 基于 Critic 反馈重新规划（不返回 round，loop_gate 已递增）
+        critic = state.get("critic_feedback", {})
+        reassess = critic.get("reassess", [])
+        missing = critic.get("missing", [])
+        confidence = critic.get("confidence", 0)
 
-    changed_files = state.get("changed_files", [])
-    risky_files = state.get("risky_files", [])
+        agents_targeted = set()
+        for item in reassess:
+            agents_targeted.add(item.get("agent", ""))
+        for item in missing:
+            agents_targeted.add(item.get("agent", ""))
 
-    # 构建文件摘要供 LLM 判断
-    lines = [f"共 {len(changed_files)} 个变更文件, {len(risky_files)} 个风险文件:"]
-    for f in changed_files:
-        fn = f.get("filename", "")
-        is_risky = any(rf.get("filename") == fn for rf in risky_files)
-        lines.append(f"  - {fn} {'[RISKY]' if is_risky else ''}")
+        profile = {
+            "need_critic_loop": False,
+            "max_rounds": 2,
+            "reason": (
+                f"复查轮: Critic 发现 {len(reassess)} 需重评 + {len(missing)} 遗漏"
+                f"(置信度 {confidence:.0%}), 涉及 Agent: {', '.join(sorted(agents_targeted))}"
+            ),
+            "priority": [],
+        }
+        return {"risk_profile": profile}
 
-    try:
-        profile = await run_planner("\n".join(lines), model=state.get("custom_model"), api_key=state.get("custom_api_key"))
-    except Exception:
-        profile = {"need_critic_loop": False, "max_rounds": 1, "reason": "Planner 调用失败", "priority": []}
-
-    return {
-        "risk_profile": profile,
-        "round": current_round,
+    # 首轮: 固定策略
+    profile = {
+        "need_critic_loop": True,
+        "max_rounds": 2,
+        "reason": "固定策略: 始终允许一次 Critic 复查",
+        "priority": [],
     }
+    return {"risk_profile": profile, "round": current_round}
 
 
 # ============================================================

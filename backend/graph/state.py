@@ -1,4 +1,4 @@
-"""LangGraph State — 迭代反馈环四 Agent 审查流水线共享状态
+"""LangGraph State — 最多2轮 Critic 复查的四 Agent 审查流水线共享状态
 
 流程图:
   parse_pr → fetch_diff → context_builder → planner
@@ -6,13 +6,14 @@
                                 ┌─── 4 Agents fan-out ───┐
                                 ↓       ↓      ↓      ↓
                             summarize security performance quality
+                           (仅首轮) (每次)  (每次)  (每次)
                                 ↓       ↓      ↓      ↓
                                 └──────────────────────────┘
                                                 ↓
                                             critic
                                                 ↓
-                                    need_rerun? → agents(delta)
-                                            ↓(NO)
+                                    need_rerun? AND round<2 → loop_gate
+                                            ↓(NO/已达2轮)
                                         aggregate → report → END
 """
 

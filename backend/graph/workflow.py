@@ -1,4 +1,4 @@
-"""LangGraph 工作流 — 迭代反馈环四 Agent 审查流水线
+"""LangGraph 工作流 — 最多2轮 Critic 复查的四 Agent 审查流水线
 
 流程图:
   parse_pr → fetch_diff → context_builder → planner
@@ -6,22 +6,30 @@
                                 ┌─── 4 Agents fan-out ───┐
                                 ↓       ↓      ↓      ↓
                             summarize security performance quality
+                           (仅首轮) (每次)  (每次)  (每次)
                                 ↓       ↓      ↓      ↓
                                 └──────────────────────────┘
                                                 ↓
                                             critic
                                                 ↓
-                                    need_rerun? → loop_gate
-                                            ↓(NO)        ↓
-                                        aggregate    (fan-out to 4 Agents)
+                                    need_rerun? AND round<2
+                                            ↓(YES且round=1)
+                                        loop_gate
                                             ↓
-                                          report
+                                planner(基于Critic反馈重新规划)
                                             ↓
-                                           END
+                                ┌─ security performance quality ─┐
+                                │  (带Critic修正反馈重跑,         │
+                                │   summarize自动跳过)            │
+                                └──────────────┬──────────────────┘
+                                               ↓
+                                      critic → aggregate → report → END
+                                    (round=2,一定走aggregate)
 
 - parse / fetch / context / planner 串行
-- 四个 Agent fan-out 并发
-- Critic 条件边: need_rerun AND round < max_rounds → loop_gate → 重跑 Agents
+- 四个 Agent fan-out 并发，summarize 仅首轮运行
+- Critic 条件边: need_rerun AND round < 2 → loop_gate → planner → 3 Agent 重跑
+- 复查轮 3 Agent 带 Critic 修正反馈，有针对性修正
 - aggregate + report 串行收尾
 """
 
