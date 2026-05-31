@@ -126,7 +126,7 @@ async def analyze_comprehensive(
         critic_feedback = "无（首轮分析）"
     prompt = COMPREHENSIVE_PROMPT.format(
         filename=filename,
-        code_content=code_content[:4000],
+        code_content=code_content[:2000],
         context=context,
         critic_feedback=critic_feedback,
     )

@@ -257,7 +257,13 @@ async def comprehensive_node(state: PRAnalysisState) -> dict:
         filename = f.get("filename", "")
         code = f.get("patch") or f.get("content", "")
         ctx = context_data.get(filename, {})
-        context_str = json.dumps(ctx, ensure_ascii=False, indent=2) if ctx else "无额外上下文"
+        # 只传 imports + funcs，full_file 太大且与 code_content 重复
+        parts = []
+        if ctx.get("imports"):
+            parts.append("imports: " + ", ".join(ctx["imports"][:10]))
+        if ctx.get("funcs"):
+            parts.append("funcs: " + ", ".join(ctx["funcs"][:10]))
+        context_str = "; ".join(parts) if parts else "无额外上下文"
         try:
             return await analyze_comprehensive(
                 filename, code, context_str,
