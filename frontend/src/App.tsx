@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Merge,
   GitPullRequest,
@@ -28,7 +28,8 @@ import {
   Shield,
   FileText,
   Play,
-  Undo
+  Undo,
+  X,
 } from "lucide-react";
 import { PRReviewData, ChangedFile, SuggestionItem, SandboxTemplate } from "./types";
 import { SANDBOX_TEMPLATES } from "./data/templates";
@@ -84,6 +85,9 @@ export default function App() {
     }
   }, [selectedFilename, reviewData?.suggestions]);
 
+  // AbortController — 用于取消正在进行的审查
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   // Sandbox Sandbox IDE states
   const [selectedSandboxTemplate, setSelectedSandboxTemplate] = useState<SandboxTemplate>(SANDBOX_TEMPLATES[0]);
   const [sandboxFiles, setSandboxFiles] = useState<{ filename: string; content: string }[]>([...SANDBOX_TEMPLATES[0].files]);
@@ -120,6 +124,14 @@ export default function App() {
 
   // Run Real AI analysis — 流式 SSE 读取后端真实步骤
   const triggerPRAnalysis = async (urlToUse?: string, filesToUse?: { filename: string; content: string }[], templateName?: string) => {
+    // 如果已有进行中的请求，先取消
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setIsLoading(true);
     setApiError(null);
     setLoadingLogs([]);
@@ -135,7 +147,8 @@ export default function App() {
           githubToken: githubToken || null,
           customApiKey: geminiApiKey || null,
           customModel: customModel || null
-        })
+        }),
+        signal: controller.signal,
       });
 
       if (!response.ok) {
@@ -227,9 +240,22 @@ export default function App() {
         }
       }
     } catch (err: any) {
-      setApiError(err.message || "请求服务器端点超时或失败。");
+      // 忽略用户主动取消的错误
+      if (err.name === "AbortError") {
+        setLoadingLogs(prev => [...prev, "⏹️ 审查已取消"]);
+      } else {
+        setApiError(err.message || "请求服务器端点超时或失败。");
+      }
     } finally {
       setIsLoading(false);
+      abortControllerRef.current = null;
+    }
+  };
+
+  // 取消正在进行的审查
+  const handleCancelAnalysis = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
     }
   };
 
@@ -597,7 +623,15 @@ export default function App() {
                   <div className="w-5 h-5 rounded-full border-2 border-accent-blue/20 border-t-accent-blue animate-spin"></div>
                   <Sparkles className="w-2.5 h-2.5 text-accent-purple absolute inset-0 m-auto animate-pulse" />
                 </div>
-                <span className="text-sm font-semibold text-text-primary">AI 深度审计中</span>
+                <span className="text-sm font-semibold text-text-primary flex-1">AI 深度审计中</span>
+                <button
+                  onClick={handleCancelAnalysis}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 hover:border-red-500/50 text-red-400 hover:text-red-300 rounded-lg text-xs font-semibold transition-all cursor-pointer"
+                  title="取消审查"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  <span>取消</span>
+                </button>
               </div>
               <div className="max-w-7xl mx-auto mt-1.5 space-y-1">
                 {loadingLogs.map((log, i) => (
