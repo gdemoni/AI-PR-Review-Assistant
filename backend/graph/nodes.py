@@ -179,7 +179,8 @@ async def summarize_node(state: PRAnalysisState) -> dict:
     if state.get("round", 1) > 1:
         return {}
 
-    changed_files = state.get("changed_files", [])
+    # 优先用风险文件做摘要，兜底取前 8 个变更文件
+    changed_files = state.get("risky_files") or state.get("changed_files", [])[:8]
     if not changed_files:
         return {"summary": "没有变更文件可供总结"}
 
@@ -187,11 +188,18 @@ async def summarize_node(state: PRAnalysisState) -> dict:
     for f in changed_files:
         filename = f.get("filename", "未知文件")
         content = f.get("patch") or f.get("content", "")
-        code_parts.append(f"### {filename}\n```\n{content[:3000]}\n```")
+        # 每文件只取 500 字符，足够识别改动意图
+        code_parts.append(f"### {filename}\n```\n{content[:500]}\n```")
     code_diff = "\n\n".join(code_parts)
 
     try:
-        return {"summary": await generate_summary(code_diff, model=state.get("custom_model"), api_key=state.get("custom_api_key"))}
+        return {"summary": await generate_summary(
+            code_diff,
+            pr_title=state.get("pr_title", ""),
+            file_count=len(changed_files),
+            model=state.get("custom_model"),
+            api_key=state.get("custom_api_key"),
+        )}
     except Exception as e:
         return {"summary": f"LLM 摘要生成失败: {str(e)}"}
 
