@@ -24,7 +24,7 @@ import asyncio
 import json
 
 from graph.state import PRAnalysisState
-from graph.tool.github import parse_pr_url, fetch_pr_info, fetch_pr_files, is_risky_file, fetch_file_context
+from graph.tool.github import parse_pr_url, fetch_pr_info, fetch_pr_files, is_risky_file, fetch_file_context, GitHubAPIError
 from graph.tool.llm import (
     generate_summary,
     analyze_comprehensive,
@@ -53,6 +53,8 @@ async def parse_pr_node(state: PRAnalysisState) -> dict:
                 "author": info["author"],
                 "author_avatar": info["author_avatar"],
             }
+        except GitHubAPIError:
+            raise  # 透传，让 router 层处理
         except Exception as e:
             return {"error": f"GitHub API 获取 PR 信息失败: {str(e)}"}
     else:
@@ -82,6 +84,8 @@ async def fetch_diff_node(state: PRAnalysisState) -> dict:
         try:
             files = await fetch_pr_files(parsed["owner"], parsed["repo"], parsed["pr_number"], token=state.get("github_token"))
             return {"changed_files": files, "files_count": len(files)}
+        except GitHubAPIError:
+            raise  # 透传，让 router 层处理
         except Exception as e:
             return {"error": f"GitHub API 获取 diff 失败: {str(e)}"}
     elif sandbox_files:

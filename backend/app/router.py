@@ -9,6 +9,7 @@ from app.schemas import (
     ChangedFile, ScoreBreakdown,
 )
 from graph import review_graph, PRAnalysisState
+from graph.tool.github import GitHubAPIError
 
 router = APIRouter()
 
@@ -141,6 +142,8 @@ async def analyze_pr(request: AnalyzePRRequest):
     try:
         final_state = await review_graph.ainvoke(initial_state)
         return _build_response(final_state)
+    except GitHubAPIError as e:
+        return AnalyzePRResponse(success=False, error=str(e))
     except Exception as e:
         return AnalyzePRResponse(success=False, error=f"工作流执行失败: {str(e)}")
 
@@ -202,6 +205,8 @@ async def analyze_pr_stream(request: AnalyzePRRequest, req: Request):
         except asyncio.CancelledError:
             # uvicorn 在客户端断开时取消协程，静默处理
             pass
+        except GitHubAPIError as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'error': f'工作流执行失败: {str(e)}'})}\n\n"
 

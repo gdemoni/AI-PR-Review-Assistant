@@ -545,7 +545,7 @@ export default function App() {
                         </div>
                         <div>
                           <span className="text-xs font-bold text-[#b49bf0] block">LLM 大模型 API 配置</span>
-                          <span className="text-[10px] text-text-secondary">自定义 Gemini 模型架构与专有接入密钥</span>
+                          <span className="text-[10px] text-text-secondary">自定义 LLM 模型与 API 密钥</span>
                         </div>
                       </div>
                       
@@ -567,10 +567,10 @@ export default function App() {
                           </select>
                         </div>
                         <div>
-                          <label className="text-[10px] text-text-secondary block mb-1">Gemini API 密钥:</label>
+                          <label className="text-[10px] text-text-secondary block mb-1">LLM API 密钥:</label>
                           <input
                             type="password"
-                            placeholder="填写个人密钥 (AIzaSy***)"
+                            placeholder="填写 LLM API 密钥"
                             className="w-full bg-[#070708] border border-border-custom rounded-xl px-3 py-2 text-xs text-text-primary placeholder:text-zinc-600 focus:outline-none focus:border-accent-purple transition-colors font-mono"
                             value={geminiApiKey}
                             onChange={(e) => setGeminiApiKey(e.target.value)}
@@ -593,18 +593,34 @@ export default function App() {
       <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           
           {/* API Keys Configuration Banner Warning */}
-          {apiError && (
+          {apiError && (() => {
+            const err = (apiError || "").toLowerCase();
+            const isGithubToken = err.includes("token") || err.includes("401") || err.includes("403") || err.includes("私有仓库") || err.includes("repo scope");
+            const isGithubNotFound = err.includes("404") || err.includes("不存在") || err.includes("链接是否正确");
+            const isLlm = err.includes("api key") || err.includes("llm") || err.includes("模型") || err.includes("密钥") || err.includes("供应商") || err.includes("provider") || err.includes("api_key");
+            const title = isGithubToken || isGithubNotFound ? "GitHub API 错误" : isLlm ? "LLM 调用错误" : "PR 审查执行出错";
+            return (
             <div className="mb-6 bg-red-950/20 border border-red-500/30 text-red-100 p-4 rounded-xl text-xs flex flex-col gap-2 relative">
               <div className="flex items-start gap-2.5">
                 <AlertTriangle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
                 <div>
-                  <span className="font-semibold block mb-0.5">Gemini 审查模块抛出错误</span>
+                  <span className="font-semibold block mb-0.5">{title}</span>
                   <p className="text-red-300/90 leading-relaxed font-mono">{apiError}</p>
                 </div>
               </div>
-              <div className="mt-2 pl-6 pt-2 border-t border-red-950/40 flex items-center gap-3 text-[11px]">
-                <span className="text-red-400">💡 解决办法:</span>
-                <span className="text-red-300">请优先使用下方的<strong className="underline mx-1 cursor-pointer" onClick={() => setActiveTab("sandbox")}>【沙盒演练场】自定义模拟提交</strong>，其支持免 API 账户快速评测，或者确认已打开右侧云底栏 Secrets Panel 配置 `GEMINI_API_KEY`。</span>
+              <div className="mt-2 pl-6 pt-2 border-t border-red-950/40 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+                <span className="text-red-400 shrink-0">💡 解决办法:</span>
+                <span className="text-red-300">
+                  {isGithubToken ? (
+                    <>请在上方填写有效的 <strong className="underline mx-1 cursor-pointer" onClick={() => setActiveTab("home")}>GitHub Access Token</strong>（需 Classic Token 且勾选 repo scope）</>
+                  ) : isGithubNotFound ? (
+                    <>请检查 PR 链接是否正确，如为私有仓库请填写 <strong className="underline mx-1 cursor-pointer" onClick={() => setActiveTab("home")}>GitHub Access Token</strong></>
+                  ) : isLlm ? (
+                    <>请检查 <strong className="underline mx-1 cursor-pointer" onClick={() => setActiveTab("home")}>LLM API 密钥</strong>与 <strong className="underline mx-1 cursor-pointer" onClick={() => setActiveTab("home")}>模型选择</strong>是否正确</>
+                  ) : (
+                    <>请检查上方配置或使用 <strong className="underline mx-1 cursor-pointer" onClick={() => setActiveTab("sandbox")}>【沙盒演练场】</strong>免配置体验</>
+                  )}
+                </span>
               </div>
               <button 
                 className="absolute top-3 right-3 text-red-400 hover:text-red-200" 
@@ -613,7 +629,8 @@ export default function App() {
                 ✕
               </button>
             </div>
-          )}
+            );
+          })()}
 
           {/* 非阻塞顶部进度条 — 审查中可自由切换 Tab */}
           {isLoading && (
@@ -1053,7 +1070,7 @@ export default function App() {
                           <span>AI 代码沙盒安全实战演练</span>
                         </h2>
                         <p className="text-xs text-text-secondary mt-1 max-w-2xl leading-relaxed">
-                          这里是个无需提交 GitHub PR 的独立测试区。你可以选择不同维度的真实微系统应用缺陷漏洞（如 JWT 过期注入、SQL注入拼接、复杂事件内存泄漏），在下方的在线编码器中修改，最后点击“安全审查”，代码将被实时上传至 Gemini 进行全链路编译分析，在看板中反馈重构建议。
+                          这里是个无需提交 GitHub PR 的独立测试区。你可以选择不同维度的真实微系统应用缺陷漏洞（如 JWT 过期注入、SQL注入拼接、复杂事件内存泄漏），在下方的在线编码器中修改，最后点击"安全审查"，代码将被实时上传至 AI 进行全链路审查分析，在看板中反馈重构建议。
                         </p>
                       </div>
 

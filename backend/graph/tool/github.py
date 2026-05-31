@@ -8,6 +8,43 @@ from typing import Optional
 
 GITHUB_API_BASE = "https://api.github.com"
 
+
+# ============================================================
+# 自定义异常：区分 GitHub 错误类型，前端据此精准提示
+# ============================================================
+class GitHubAPIError(Exception):
+    """GitHub API 错误，携带错误码与是否需要 Token 的标记"""
+    def __init__(self, message: str, status_code: int = 0, needs_token: bool = False):
+        super().__init__(message)
+        self.status_code = status_code
+        self.needs_token = needs_token
+
+
+def _build_github_error(status_code: int, has_token: bool, repo: str = "") -> GitHubAPIError:
+    """根据 HTTP 状态码和 Token 状态生成精准错误"""
+    repo_hint = f"（仓库 {repo}）" if repo else ""
+    if status_code == 404:
+        if has_token:
+            return GitHubAPIError(
+                f"PR 或仓库不存在{repo_hint}，请检查链接是否正确",
+                status_code=404, needs_token=False)
+        else:
+            return GitHubAPIError(
+                f"仓库不可访问{repo_hint}，可能是私有仓库，请填写 GitHub Access Token",
+                status_code=404, needs_token=True)
+    elif status_code == 401:
+        return GitHubAPIError(
+            f"GitHub Token 无效或已过期{repo_hint}",
+            status_code=401, needs_token=True)
+    elif status_code == 403:
+        return GitHubAPIError(
+            f"GitHub Token 权限不足{repo_hint}，需要 repo scope",
+            status_code=403, needs_token=True)
+    else:
+        return GitHubAPIError(
+            f"GitHub API 返回 {status_code} 错误{repo_hint}",
+            status_code=status_code, needs_token=False)
+
 # ============================================================
 # 风险文件筛选 — 关键词/路径匹配，零 LLM 成本
 # ============================================================
@@ -64,11 +101,16 @@ async def fetch_pr_info(owner: str, repo: str, pr_number: str, token: Optional[s
     """
     获取 PR 基本信息（标题、作者等）。
     GitHub API: GET /repos/{owner}/{repo}/pulls/{pr_number}
+
+    public 仓库无需 Token 直接可查，private 仓库需 Token，
+    401/403/404 会抛 GitHubAPIError 携带精准错误信息。
     """
     url = f"{GITHUB_API_BASE}/repos/{owner}/{repo}/pulls/{pr_number}"
+    has_token = bool(token or os.getenv("GITHUB_TOKEN"))
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.get(url, headers=_auth_headers(token))
-        resp.raise_for_status()
+        if resp.status_code != 200:
+            raise _build_github_error(resp.status_code, has_token, f"{owner}/{repo}")
         pr_data = resp.json()
         return {
             "title": pr_data.get("title", ""),
@@ -83,11 +125,15 @@ async def fetch_pr_files(owner: str, repo: str, pr_number: str, token: Optional[
     获取 PR 变更文件列表及内容。
     GitHub API: GET /repos/{owner}/{repo}/pulls/{pr_number}/files
     返回: [{filename, content, patch}]
+
+    public 仓库无需 Token，private 仓库 401/403/404 抛 GitHubAPIError。
     """
     url = f"{GITHUB_API_BASE}/repos/{owner}/{repo}/pulls/{pr_number}/files"
+    has_token = bool(token or os.getenv("GITHUB_TOKEN"))
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.get(url, headers=_auth_headers(token))
-        resp.raise_for_status()
+        if resp.status_code != 200:
+            raise _build_github_error(resp.status_code, has_token, f"{owner}/{repo}")
         files_data = resp.json()
 
         changed_files = []
