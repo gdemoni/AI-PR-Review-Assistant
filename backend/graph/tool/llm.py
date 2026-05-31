@@ -54,6 +54,17 @@ PROVIDER_CONFIG = {
     },
 }
 
+# 模型名关键词 → 供应商映射（前端选模型时自动推断供应商）
+MODEL_TO_PROVIDER = {
+    "deepseek": "deepseek",
+    "qwen": "qwen",
+    "glm": "zhipu",
+    "zhipu": "zhipu",
+    "moonshot": "moonshot",
+    "gpt": "openai",
+    "o1": "openai",
+}
+
 if LLM_PROVIDER not in PROVIDER_CONFIG:
     raise ValueError(
         f"不支持的 LLM_PROVIDER: {LLM_PROVIDER}，"
@@ -61,20 +72,42 @@ if LLM_PROVIDER not in PROVIDER_CONFIG:
     )
 
 
+def _resolve_provider(model_override: Optional[str] = None) -> tuple:
+    """根据模型名自动推断供应商，返回 (provider_key, model_name)
+
+    前端选了 qwen-max → 推断 provider=qwen → 用通义千问 API
+    前端选了 gpt-4o  → 推断 provider=openai → 用 OpenAI API
+    前端未选模型    → 回退到 LLM_PROVIDER 环境变量
+    """
+    if model_override:
+        model_lower = model_override.lower()
+        for keyword, provider in MODEL_TO_PROVIDER.items():
+            if keyword in model_lower:
+                if provider in PROVIDER_CONFIG:
+                    return provider, model_override
+                break
+    return LLM_PROVIDER, _get_model(model_override)
+
+
 def _get_model(override: Optional[str] = None) -> str:
     """获取当前供应商的模型名称，优先使用 override"""
     return override or os.getenv("LLM_MODEL", PROVIDER_CONFIG[LLM_PROVIDER]["default_model"])
 
 
-def _get_api_key(override: Optional[str] = None) -> str:
-    """获取当前供应商的 API Key，优先使用 override"""
-    if override:
-        return override
-    key_env = PROVIDER_CONFIG[LLM_PROVIDER]["api_key_env"]
+def _get_api_key(provider_key: str, api_key_override: Optional[str] = None) -> str:
+    """获取指定供应商的 API Key，优先使用 api_key_override"""
+    if api_key_override:
+        return api_key_override
+    config = PROVIDER_CONFIG.get(provider_key, PROVIDER_CONFIG[LLM_PROVIDER])
+    key_env = config["api_key_env"]
     key = os.getenv(key_env)
     if not key:
+        # 回退: 尝试用默认供应商的 key（兼容只配了一个 key 的场景）
+        default_key = os.getenv(PROVIDER_CONFIG[LLM_PROVIDER]["api_key_env"])
+        if default_key:
+            return default_key
         raise ValueError(
-            f"未配置 {key_env} 环境变量，当前 LLM 供应商为 {LLM_PROVIDER}，"
+            f"未配置 {key_env} 环境变量，当前模型供应商为 {provider_key}，"
             f"请在 .env 文件中设置 {key_env} 或通过前端传入 customApiKey"
         )
     return key
@@ -84,16 +117,23 @@ def _get_api_key(override: Optional[str] = None) -> str:
 # 核心：统一对话接口
 # ============================================================
 async def _chat(prompt: str, model: Optional[str] = None, api_key: Optional[str] = None) -> str:
-    """向当前 LLM 发送提示词并返回文本响应，model/api_key 可选覆盖"""
+    """向当前 LLM 发送提示词并返回文本响应，model/api_key 可选覆盖
+
+    根据 model 名自动推断供应商（如 qwen-max → 通义千问 API），
+    确保模型名和 API 端点匹配，不会出现用 DeepSeek API 调通义千问的错误。
+    """
     from openai import AsyncOpenAI
 
-    config = PROVIDER_CONFIG[LLM_PROVIDER]
+    # 根据模型名推断供应商
+    provider_key, resolved_model = _resolve_provider(model)
+    config = PROVIDER_CONFIG.get(provider_key, PROVIDER_CONFIG[LLM_PROVIDER])
+
     client = AsyncOpenAI(
-        api_key=_get_api_key(api_key),
+        api_key=_get_api_key(provider_key, api_key),
         base_url=config["base_url"],
     )
     response = await client.chat.completions.create(
-        model=_get_model(model),
+        model=resolved_model,
         messages=[{"role": "user", "content": prompt}],
     )
     return response.choices[0].message.content.strip()
