@@ -2,7 +2,7 @@
 
 import json
 import asyncio
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 from app.schemas import (
     AnalyzePRRequest, AnalyzePRResponse, PRReviewData,
@@ -150,15 +150,18 @@ async def analyze_pr(request: AnalyzePRRequest):
 # ============================================================
 
 @router.post("/analyze-pr/stream")
-async def analyze_pr_stream(request: AnalyzePRRequest):
+async def analyze_pr_stream(request: AnalyzePRRequest, req: Request):
     """
-    流式 PR 审查端点。
+    流式 PR 审查端点，支持客户端断开后自动取消。
 
     前端通过 ReadableStream 读取 SSE 事件:  
       data: {"step": "🔍 正在解析 PR 链接..."}
       data: {"step": "📡 正在拉取代码差异..."}
       ...
       data: {"done": true, "result": {...}}
+
+    前端调用 AbortController.abort() 断开连接时，
+    后端通过 req.is_disconnected() 检测并停止工作流。
     """
     async def event_stream():
         initial_state = _build_initial_state(request)
@@ -172,6 +175,11 @@ async def analyze_pr_stream(request: AnalyzePRRequest):
 
         try:
             async for chunk in review_graph.astream(initial_state, stream_mode="updates"):
+                # ===== 取消检测: 客户端断开则立即停止工作流 =====
+                if await req.is_disconnected():
+                    yield f"data: {json.dumps({'step': '⏹️ 审查已被用户取消', 'cancelled': True})}\n\n"
+                    return
+
                 # chunk = {node_name: output_dict}, fan-out 时多个 key 同时出现
                 for node_name, node_output in chunk.items():
                     step_text = NODE_STEP_MAP.get(node_name)
@@ -183,10 +191,17 @@ async def analyze_pr_stream(request: AnalyzePRRequest):
                     if isinstance(node_output, dict):
                         final_state.update(node_output)
 
+            # 再次检查（工作流完成但客户端可能已离开）
+            if await req.is_disconnected():
+                return
+
             # 工作流执行完毕，发送最终结果
             response = _build_response(final_state)
             yield f"data: {json.dumps({'done': True, 'result': response.model_dump()})}\n\n"
 
+        except asyncio.CancelledError:
+            # uvicorn 在客户端断开时取消协程，静默处理
+            pass
         except Exception as e:
             yield f"data: {json.dumps({'error': f'工作流执行失败: {str(e)}'})}\n\n"
 
