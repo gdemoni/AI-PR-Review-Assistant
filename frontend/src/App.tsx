@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "motion/react";
 import {
   Merge,
   GitPullRequest,
@@ -201,43 +200,14 @@ export default function App() {
     );
   };
 
-  // Run Real AI analysis via our server backend route
+  // Run Real AI analysis — 流式 SSE 读取后端真实步骤
   const triggerPRAnalysis = async (urlToUse?: string, filesToUse?: { filename: string; content: string }[], templateName?: string) => {
     setIsLoading(true);
     setApiError(null);
-    
-    const steps = [
-      "🚀 初始化代码审计引擎...",
-      "📡 正在拉取远端 Pull Request 代码差异...",
-      "🔍 我正在检查你的 AuthService 模块...",
-      "⚙️ 扫描 AST 语法树，分析控制流...",
-      "⚠️ 发现潜在的 SQL 注入风险，正在验证上游数据源...",
-      "🛡️ 检查鉴权中间件逻辑，暂未发现提权漏洞...",
-      "⏱️ 性能告警：循环内发现同步数据库查询，正在生成优化建议...",
-      "✨ 代码规范校验完成...",
-      "📝 正在生成最终审计报告及重构差分补丁..."
-    ];
-
-    let currentStep = 0;
-    setLoadingLogs([steps[0]]);
-    const stepInterval = setInterval(() => {
-      currentStep++;
-      if (currentStep < steps.length) {
-        setLoadingLogs(prev => {
-          const newLogs = [...prev, steps[currentStep]];
-          // Keep only the last 4 logs to avoid overflow
-          if (newLogs.length > 4) {
-            return newLogs.slice(newLogs.length - 4);
-          }
-          return newLogs;
-        });
-      } else {
-        clearInterval(stepInterval);
-      }
-    }, 1200);
+    setLoadingLogs([]);
 
     try {
-      const response = await fetch("/api/analyze-pr", {
+      const response = await fetch("/api/analyze-pr/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -250,33 +220,95 @@ export default function App() {
         })
       });
 
-      const resJson = await response.json();
-      clearInterval(stepInterval);
+      if (!response.ok) {
+        throw new Error(`请求失败: HTTP ${response.status}`);
+      }
 
-      if (resJson.success && resJson.data) {
-        setReviewData(resJson.data);
-        setSelectedFilename(resJson.data.changedFiles[0]?.filename || "");
-        setAppliedSuggestions({}); // Reset applied status
-        setExpandedSuggestion(0);
-        
-        // Add to history reports
-        const newReport = {
-          id: String(Date.now()),
-          title: resJson.data.title,
-          repo: resJson.data.repo,
-          author: resJson.data.author,
-          time: "刚刚",
-          risksCount: resJson.data.risks.length
-        };
-        setHistoryReports(prev => [newReport, ...prev]);
-        
-        // Switch view back to dashboard
-        setActiveTab("dashboard");
+      const contentType = response.headers.get("content-type") || "";
+
+      if (contentType.includes("text/event-stream")) {
+        // === SSE 流式读取: 实时接收后端推送的步骤名称 ===
+        const reader = response.body!.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              try {
+                const event = JSON.parse(line.slice(6));
+
+                if (event.step) {
+                  setLoadingLogs(prev => {
+                    const newLogs = [...prev, event.step];
+                    return newLogs.length > 6 ? newLogs.slice(-6) : newLogs;
+                  });
+                }
+
+                if (event.done && event.result) {
+                  const resJson = event.result;
+                  if (resJson.success && resJson.data) {
+                    setReviewData(resJson.data);
+                    setSelectedFilename(resJson.data.changedFiles[0]?.filename || "");
+                    setAppliedSuggestions({});
+                    setExpandedSuggestion(0);
+
+                    const newReport = {
+                      id: String(Date.now()),
+                      title: resJson.data.title,
+                      repo: resJson.data.repo,
+                      author: resJson.data.author,
+                      time: "刚刚",
+                      risksCount: resJson.data.risks.length
+                    };
+                    setHistoryReports(prev => [newReport, ...prev]);
+                    setActiveTab("dashboard");
+                  } else {
+                    setApiError(resJson.error || "发生了未知错误");
+                  }
+                }
+
+                if (event.error) {
+                  setApiError(event.error);
+                }
+              } catch {
+                // 跳过无法解析的行
+              }
+            }
+          }
+        }
       } else {
-        setApiError(resJson.error || "发生了未知错误，可能尚未配置 GEMINI_API_KEY。");
+        // === 非流式 JSON 回退（兼容旧版后端）===
+        const resJson = await response.json();
+
+        if (resJson.success && resJson.data) {
+          setReviewData(resJson.data);
+          setSelectedFilename(resJson.data.changedFiles[0]?.filename || "");
+          setAppliedSuggestions({});
+          setExpandedSuggestion(0);
+
+          const newReport = {
+            id: String(Date.now()),
+            title: resJson.data.title,
+            repo: resJson.data.repo,
+            author: resJson.data.author,
+            time: "刚刚",
+            risksCount: resJson.data.risks.length
+          };
+          setHistoryReports(prev => [newReport, ...prev]);
+          setActiveTab("dashboard");
+        } else {
+          setApiError(resJson.error || "发生了未知错误，可能尚未配置 API Key。");
+        }
       }
     } catch (err: any) {
-      clearInterval(stepInterval);
       setApiError(err.message || "请求服务器端点超时或失败。");
     } finally {
       setIsLoading(false);
@@ -483,7 +515,7 @@ export default function App() {
       </header>
 
       {/* Hero / Form Area */}
-      {!isLoading && activeTab === "home" && (
+      {activeTab === "home" && (
         <div className="w-full border-b border-border-custom bg-[#09090b]/40 relative overflow-hidden">
           {/* Subtle background glow */}
           <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[300px] bg-accent-blue/10 rounded-full blur-[100px] pointer-events-none"></div>
@@ -639,56 +671,30 @@ export default function App() {
             </div>
           )}
 
-          {/* Loading Loader Overlay / Interface */}
-          {isLoading ? (
-            <div className="h-full flex flex-col items-center justify-center py-10 min-h-[600px]" id="loading-state-container">
-              <div className="max-w-2xl w-full px-6">
-                <div className="flex items-center gap-6 mb-8 justify-center">
-                  <div className="relative">
-                    <div className="w-16 h-16 rounded-full border-4 border-accent-blue/10 border-t-accent-blue animate-spin"></div>
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <Sparkles className="w-6 h-6 text-accent-purple animate-pulse" />
-                    </div>
-                  </div>
-                  <div className="text-left">
-                    <h3 className="text-xl font-bold text-text-primary tracking-tight">AI 深度审计中</h3>
-                    <p className="text-sm text-text-secondary mt-1">Gemini 正在分析您的代码库，请稍候...</p>
-                  </div>
+          {/* 非阻塞顶部进度条 — 审查中可自由切换 Tab */}
+          {isLoading && (
+            <div className="sticky top-0 z-40 w-full bg-[#09090b]/95 backdrop-blur-md border-b border-accent-blue/20 px-4 py-2.5 shadow-lg shadow-accent-blue/5">
+              <div className="max-w-7xl mx-auto flex items-center gap-3">
+                <div className="relative shrink-0">
+                  <div className="w-5 h-5 rounded-full border-2 border-accent-blue/20 border-t-accent-blue animate-spin"></div>
+                  <Sparkles className="w-2.5 h-2.5 text-accent-purple absolute inset-0 m-auto animate-pulse" />
                 </div>
-
-                <div className="bg-[#09090b]/80 border border-border-custom rounded-2xl p-6 shadow-2xl min-h-[360px] flex flex-col justify-end overflow-hidden relative backdrop-blur-md">
-                  {/* fading out top */}
-                  <div className="absolute top-0 left-0 right-0 h-24 bg-gradient-to-b from-[#09090b] to-transparent z-10 pointer-events-none rounded-t-2xl"></div>
-                  
-                  <div className="space-y-4 flex flex-col justify-end relative z-0">
-                    <AnimatePresence mode="popLayout">
-                      {loadingLogs.map((log, i) => (
-                        <motion.div
-                          key={log}
-                          initial={{ opacity: 0, y: 20, scale: 0.95 }}
-                          animate={{ opacity: 1, y: 0, scale: 1 }}
-                          exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.2 } }}
-                          transition={{ duration: 0.4, type: "spring", stiffness: 200, damping: 20 }}
-                          className="flex items-start gap-4 w-full group"
-                          layout
-                        >
-                          <div className="w-9 h-9 rounded-full bg-accent-blue/10 border border-accent-blue/20 flex items-center justify-center shrink-0 mt-1 transition-all duration-300 group-hover:scale-110 group-hover:shadow-[0_0_15px_rgba(59,130,246,0.3)]">
-                            <Sparkles className="w-4 h-4 text-accent-blue" />
-                          </div>
-                          <div className="bg-[#18181b] border border-border-custom rounded-2xl rounded-tl-sm px-5 py-3.5 shadow-lg flex-1">
-                            <p className="text-[13px] md:text-sm text-text-primary leading-relaxed">{log}</p>
-                          </div>
-                        </motion.div>
-                      ))}
-                    </AnimatePresence>
+                <span className="text-sm font-semibold text-text-primary">AI 深度审计中</span>
+              </div>
+              <div className="max-w-7xl mx-auto mt-1.5 space-y-1">
+                {loadingLogs.map((log, i) => (
+                  <div key={i} className="flex items-start gap-2.5">
+                    <div className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${i === loadingLogs.length - 1 ? "bg-accent-blue animate-pulse" : "bg-border-custom"}`}></div>
+                    <p className="text-[11px] text-text-secondary leading-relaxed">{log}</p>
                   </div>
-                </div>
+                ))}
               </div>
             </div>
-          ) : (
-            <>
-              {/* PAGE 1: PR REVIEW DASHBOARD */}
-              {activeTab === "dashboard" && (
+          )}
+
+          <>
+            {/* PAGE 1: PR REVIEW DASHBOARD */}
+            {activeTab === "dashboard" && (
                 <div className="space-y-6" id="dashboard-tab">
                   
                   {/* Dashboard stats cards top line - Sleek Interface style */}
@@ -1358,7 +1364,6 @@ export default function App() {
               )}
 
             </>
-          )}
 
       </main>
 
