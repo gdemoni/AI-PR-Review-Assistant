@@ -245,7 +245,7 @@ async def comprehensive_node(state: PRAnalysisState) -> dict:
     if state.get("error"):
         return {}
 
-    changed_files = state.get("changed_files", [])
+    changed_files = state.get("risky_files") or state.get("changed_files", [])[:5]
     if not changed_files:
         return {"security_risks": [], "performance_issues": [], "quality_issues": []}
 
