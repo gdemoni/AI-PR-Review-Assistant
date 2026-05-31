@@ -99,11 +99,9 @@ def build_pr_review_graph() -> StateGraph:
         },
     )
 
-    # === 重跑: loop_gate → 4 Agents fan-out (summarize 检测 round>1 会跳过) ===
-    workflow.add_edge("loop_gate", "summarize")
-    workflow.add_edge("loop_gate", "security")
-    workflow.add_edge("loop_gate", "performance")
-    workflow.add_edge("loop_gate", "quality")
+    # === 重跑: loop_gate → planner(基于 Critic 反馈重新规划) → 4 Agents fan-out ===
+    # summarize 检测 round>1 自动跳过，3 Agent 带 Critic 修正反馈重跑
+    workflow.add_edge("loop_gate", "planner")
 
     # === 收尾 ===
     workflow.add_edge("aggregate", "report")

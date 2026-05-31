@@ -294,19 +294,25 @@ async def security_node(state: PRAnalysisState) -> dict:
 
 
 async def performance_node(state: PRAnalysisState) -> dict:
+    feedback = state.get("critic_feedback", {})
+    critic_text = _build_critic_text(feedback, "performance")
     return await _run_agent_node(
         state, "performance_issues", analyze_performance,
         [{"level": "medium", "file": ""}],
+        critic_feedback=critic_text,
         model=state.get("custom_model"),
         api_key=state.get("custom_api_key"),
     )
 
 
 async def quality_node(state: PRAnalysisState) -> dict:
+    feedback = state.get("critic_feedback", {})
+    critic_text = _build_critic_text(feedback, "quality")
     return await _run_agent_node(
         state, "quality_issues", analyze_quality,
         [{"file": "", "title": "LLM 调用异常", "severity": "info",
           "description": "", "originalCode": "", "revisedCode": "", "explanation": ""}],
+        critic_feedback=critic_text,
         model=state.get("custom_model"),
         api_key=state.get("custom_api_key"),
     )
