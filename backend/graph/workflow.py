@@ -1,28 +1,28 @@
-"""LangGraph 工作流 — 迭代反馈环四 Agent 审查流水线
+"""LangGraph 工作流 — Summarize + Comprehensive 双 Agent + Critic 最多2轮迭代
 
 流程图:
   parse_pr → fetch_diff → context_builder → planner
                                                 ↓
-                                ┌─── 4 Agents fan-out ───┐
-                                ↓       ↓      ↓      ↓
-                            summarize security performance quality
-                                ↓       ↓      ↓      ↓
-                                └──────────────────────────┘
-                                                ↓
-                                            critic
-                                                ↓
-                                    need_rerun? → loop_gate
-                                            ↓(NO)        ↓
-                                        aggregate    (fan-out to 4 Agents)
-                                            ↓
-                                          report
-                                            ↓
-                                           END
+                              ┌─── 2 Agents fan-out ──┐
+                              ↓                        ↓
+                          summarize              comprehensive
+                         (仅首轮)          (安全+性能+质量三合一)
+                              ↓                        ↓
+                              └──────────┬─────────────┘
+                                         ↓
+                                      critic
+                                         ↓
+                              need_rerun? AND round<2
+                                    ↓(YES且round=1)
+                                loop_gate → planner(重新规划) → comprehensive(带修正)
+                                    ↓(NO/已达2轮)
+                              aggregate → report → END
 
 - parse / fetch / context / planner 串行
-- 四个 Agent fan-out 并发
-- Critic 条件边: need_rerun AND round < max_rounds → loop_gate → 重跑 Agents
-- aggregate + report 串行收尾
+- summarize + comprehensive 并发
+- comprehensive 每个文件 1 次 LLM 调用输出三维度（原 3 次 → 1 次）
+- Critic: need_rerun AND round < 2 → loop_gate → planner → comprehensive
+- summarize 检查 round>1 自动跳过
 """
 
 from langgraph.graph import StateGraph, END
@@ -33,9 +33,7 @@ from graph.nodes import (
     context_builder_node,
     planner_node,
     summarize_node,
-    security_node,
-    performance_node,
-    quality_node,
+    comprehensive_node,
     critic_node,
     aggregate_node,
     report_node,
@@ -44,11 +42,13 @@ from graph.nodes import (
 
 
 def _should_rerun(state: PRAnalysisState) -> str:
-    """Critic 后的条件路由: 判断是否需要重跑"""
+    """Critic 后的条件路由: 置信度 ≥ 0.5 即不重跑"""
     feedback = state.get("critic_feedback", {})
     round_num = state.get("round", 1)
     max_rounds = state.get("risk_profile", {}).get("max_rounds", 1)
 
+    if feedback.get("confidence", 0) >= 0.5:
+        return "aggregate"
     if feedback.get("need_rerun") and round_num < max_rounds:
         return "loop_gate"
     return "aggregate"
@@ -63,9 +63,7 @@ def build_pr_review_graph() -> StateGraph:
     workflow.add_node("context_builder", context_builder_node)
     workflow.add_node("planner", planner_node)
     workflow.add_node("summarize", summarize_node)
-    workflow.add_node("security", security_node)
-    workflow.add_node("performance", performance_node)
-    workflow.add_node("quality", quality_node)
+    workflow.add_node("comprehensive", comprehensive_node)
     workflow.add_node("critic", critic_node)
     workflow.add_node("aggregate", aggregate_node)
     workflow.add_node("report", report_node)
@@ -77,17 +75,13 @@ def build_pr_review_graph() -> StateGraph:
     workflow.add_edge("fetch_diff", "context_builder")
     workflow.add_edge("context_builder", "planner")
 
-    # === 并发阶段: planner → 4 Agents fan-out ===
+    # === 并发阶段: planner → summarize + comprehensive fan-out ===
     workflow.add_edge("planner", "summarize")
-    workflow.add_edge("planner", "security")
-    workflow.add_edge("planner", "performance")
-    workflow.add_edge("planner", "quality")
+    workflow.add_edge("planner", "comprehensive")
 
-    # === 收敛: 4 Agents → critic ===
+    # === 收敛: summarize + comprehensive → critic ===
     workflow.add_edge("summarize", "critic")
-    workflow.add_edge("security", "critic")
-    workflow.add_edge("performance", "critic")
-    workflow.add_edge("quality", "critic")
+    workflow.add_edge("comprehensive", "critic")
 
     # === Critic 条件边: 重跑 or 聚合 ===
     workflow.add_conditional_edges(
@@ -99,11 +93,8 @@ def build_pr_review_graph() -> StateGraph:
         },
     )
 
-    # === 重跑: loop_gate → 4 Agents fan-out (summarize 检测 round>1 会跳过) ===
-    workflow.add_edge("loop_gate", "summarize")
-    workflow.add_edge("loop_gate", "security")
-    workflow.add_edge("loop_gate", "performance")
-    workflow.add_edge("loop_gate", "quality")
+    # === 重跑: loop_gate → planner(基于 Critic 反馈重新规划) → summarize(跳过) + comprehensive(带修正反馈重跑) ===
+    workflow.add_edge("loop_gate", "planner")
 
     # === 收尾 ===
     workflow.add_edge("aggregate", "report")

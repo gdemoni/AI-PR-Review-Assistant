@@ -1,4 +1,4 @@
-"""通用 LLM 调用模块 — 支持 5 家主流模型供应商 + 迭代反馈环四 Agent
+"""通用 LLM 调用模块 — 支持 5 家主流模型供应商 + 三合一 Comprehensive Agent
 
 通过环境变量 LLM_PROVIDER 切换供应商:
   - deepseek  → DeepSeek（DeepSeek-V3 / R1，默认）
@@ -15,10 +15,7 @@ import json
 from typing import Optional
 from graph.prompts import (
     SUMMARY_PROMPT,
-    PLANNER_PROMPT,
-    SECURITY_PROMPT,
-    PERFORMANCE_PROMPT,
-    QUALITY_PROMPT,
+    COMPREHENSIVE_PROMPT,
     CRITIC_PROMPT,
     AGGREGATE_PROMPT,
     REPORT_PROMPT,
@@ -103,33 +100,33 @@ async def _chat(prompt: str, model: Optional[str] = None, api_key: Optional[str]
 
 
 # ============================================================
-# 公开函数 — 迭代反馈环四 Agent + 旧版兼容
+# 公开函数 — 三合一 Comprehensive + 旧版兼容
 # ============================================================
 
-async def generate_summary(code_diff: str, model: Optional[str] = None, api_key: Optional[str] = None) -> str:
-    """PR 总结: 调用 LLM 生成 PR 中文摘要"""
-    prompt = SUMMARY_PROMPT.format(code_diff=code_diff)
+async def generate_summary(code_diff: str, pr_title: str = "", file_count: int = 0, model: Optional[str] = None, api_key: Optional[str] = None) -> str:
+    """PR 总结: 调用 LLM 生成 PR 中文摘要（含 PR 标题 + 文件数上下文）"""
+    prompt = SUMMARY_PROMPT.format(code_diff=code_diff, pr_title=pr_title, file_count=file_count)
     return await _chat(prompt, model, api_key)
 
 
-# --- 新版四 Agent ---
+# --- Comprehensive Agent（三合一） ---
 
-async def analyze_security(
+async def analyze_comprehensive(
     filename: str,
     code_content: str,
     context: str = "",
     critic_feedback: str = "",
     model: Optional[str] = None,
     api_key: Optional[str] = None,
-) -> list[dict]:
-    """安全 Agent: 带上下文和 Critic 反馈的深度风险分析 → [{level, message, evidence, file}]"""
+) -> dict:
+    """三合一审查: 一次 LLM 调用输出 security + performance + quality → {security: [...], performance: [...], quality: [...]}"""
     if not context:
         context = "无额外上下文"
     if not critic_feedback:
         critic_feedback = "无（首轮分析）"
-    prompt = SECURITY_PROMPT.format(
+    prompt = COMPREHENSIVE_PROMPT.format(
         filename=filename,
-        code_content=code_content[:4000],
+        code_content=code_content[:2000],
         context=context,
         critic_feedback=critic_feedback,
     )
@@ -137,80 +134,33 @@ async def analyze_security(
     text = text.replace("```json", "").replace("```", "").strip()
     try:
         result = json.loads(text)
-        if not isinstance(result, list):
-            result = []
-        for r in result:
-            r.setdefault("file", filename)
+        if not isinstance(result, dict):
+            result = {"security": [], "performance": [], "quality": []}
+        # 确保每个字段都是列表
+        for key in ("security", "performance", "quality"):
+            if not isinstance(result.get(key), list):
+                result[key] = []
+            for r in result[key]:
+                r.setdefault("file", filename)
         return result
     except json.JSONDecodeError:
-        return [{"level": "low", "message": f"安全分析解析失败: {text[:100]}", "file": filename}]
-
-
-async def analyze_performance(
-    filename: str,
-    code_content: str,
-    context: str = "",
-    model: Optional[str] = None,
-    api_key: Optional[str] = None,
-) -> list[dict]:
-    """性能 Agent: 检测 N+1、大对象分配等问题 → [{level, message, file, severity, suggestion}]"""
-    if not context:
-        context = "无额外上下文"
-    prompt = PERFORMANCE_PROMPT.format(
-        filename=filename,
-        code_content=code_content[:4000],
-        context=context,
-    )
-    text = await _chat(prompt, model, api_key)
-    text = text.replace("```json", "").replace("```", "").strip()
-    try:
-        result = json.loads(text)
-        if not isinstance(result, list):
-            result = []
-        for r in result:
-            r.setdefault("file", filename)
-        return result
-    except json.JSONDecodeError:
-        return [{"level": "low", "message": f"性能分析解析失败: {text[:100]}", "file": filename}]
-
-
-async def analyze_quality(
-    filename: str,
-    code_content: str,
-    context: str = "",
-    model: Optional[str] = None,
-    api_key: Optional[str] = None,
-) -> list[dict]:
-    """质量 Agent: 检测命名/重复/复杂度 → [{file, title, description, severity, originalCode, revisedCode, explanation}]"""
-    if not context:
-        context = "无额外上下文"
-    prompt = QUALITY_PROMPT.format(
-        filename=filename,
-        code_content=code_content[:4000],
-        context=context,
-    )
-    text = await _chat(prompt, model, api_key)
-    text = text.replace("```json", "").replace("```", "").strip()
-    try:
-        result = json.loads(text)
-        if not isinstance(result, list):
-            result = []
-        for r in result:
-            r.setdefault("file", filename)
-        return result
-    except json.JSONDecodeError:
-        return [{
-            "file": filename,
-            "title": "质量分析失败",
-            "description": f"LLM 返回格式异常: {text[:100]}",
-            "severity": "info",
-            "originalCode": "",
-            "revisedCode": "",
-            "explanation": "请检查 API Key 或重试",
-        }]
+        return {
+            "security": [{"level": "medium", "message": f"综合解析失败: {text[:100]}", "file": filename}],
+            "performance": [],
+            "quality": [],
+        }
 
 
 # --- Critic / 聚合 / 报告 ---
+
+def _slim(items: list[dict]) -> list[dict]:
+    """去除大字段，Critic / Aggregate 不需要原始代码"""
+    return [
+        {k: v for k, v in item.items()
+         if k not in ("evidence", "originalCode", "revisedCode", "explanation", "description", "suggestion")}
+        for item in items
+    ]
+
 
 async def run_critic(
     summary: str,
@@ -220,12 +170,12 @@ async def run_critic(
     model: Optional[str] = None,
     api_key: Optional[str] = None,
 ) -> dict:
-    """Critic Agent: 检查四个 Agent 输出的一致性 → {reassess, missing, confidence, need_rerun}"""
+    """Critic Agent: 检查综合审查输出的一致性 → {reassess, missing, confidence, need_rerun}"""
     prompt = CRITIC_PROMPT.format(
         summary=summary,
-        security=json.dumps(security, ensure_ascii=False, indent=2),
-        performance=json.dumps(performance, ensure_ascii=False, indent=2),
-        quality=json.dumps(quality, ensure_ascii=False, indent=2),
+        security=json.dumps(_slim(security), ensure_ascii=False, indent=2),
+        performance=json.dumps(_slim(performance), ensure_ascii=False, indent=2),
+        quality=json.dumps(_slim(quality), ensure_ascii=False, indent=2),
     )
     text = await _chat(prompt, model, api_key)
     text = text.replace("```json", "").replace("```", "").strip()
@@ -252,9 +202,9 @@ async def aggregate_results(
     """聚合评分: 合并去重排序, 产统一评分 → {overall, security, performance, quality, verdict, verdict_reason}"""
     prompt = AGGREGATE_PROMPT.format(
         summary=summary,
-        security=json.dumps(security, ensure_ascii=False, indent=2),
-        performance=json.dumps(performance, ensure_ascii=False, indent=2),
-        quality=json.dumps(quality, ensure_ascii=False, indent=2),
+        security=json.dumps(_slim(security), ensure_ascii=False, indent=2),
+        performance=json.dumps(_slim(performance), ensure_ascii=False, indent=2),
+        quality=json.dumps(_slim(quality), ensure_ascii=False, indent=2),
     )
     text = await _chat(prompt, model, api_key)
     text = text.replace("```json", "").replace("```", "").strip()
@@ -291,19 +241,4 @@ async def generate_report(
     return await _chat(prompt, model, api_key)
 
 
-# --- Planner ---
-
-async def run_planner(files_summary: str, model: Optional[str] = None, api_key: Optional[str] = None) -> dict:
-    """Planner: 决定是否启用 Critic loop → {need_critic_loop, max_rounds, reason, priority}"""
-    prompt = PLANNER_PROMPT.format(files_summary=files_summary)
-    text = await _chat(prompt, model, api_key)
-    text = text.replace("```json", "").replace("```", "").strip()
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        return {
-            "need_critic_loop": False,
-            "max_rounds": 1,
-            "reason": "Planner 解析失败, 默认跳过 Critic",
-            "priority": [],
-        }
+# --- 旧版兼容 ---
