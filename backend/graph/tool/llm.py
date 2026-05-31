@@ -150,16 +150,20 @@ async def analyze_performance(
     filename: str,
     code_content: str,
     context: str = "",
+    critic_feedback: str = "",
     model: Optional[str] = None,
     api_key: Optional[str] = None,
 ) -> list[dict]:
     """性能 Agent: 检测 N+1、大对象分配等问题 → [{level, message, file, severity, suggestion}]"""
     if not context:
         context = "无额外上下文"
+    if not critic_feedback:
+        critic_feedback = "无（首轮分析）"
     prompt = PERFORMANCE_PROMPT.format(
         filename=filename,
         code_content=code_content[:4000],
         context=context,
+        critic_feedback=critic_feedback,
     )
     text = await _chat(prompt, model, api_key)
     text = text.replace("```json", "").replace("```", "").strip()
@@ -178,16 +182,20 @@ async def analyze_quality(
     filename: str,
     code_content: str,
     context: str = "",
+    critic_feedback: str = "",
     model: Optional[str] = None,
     api_key: Optional[str] = None,
 ) -> list[dict]:
     """质量 Agent: 检测命名/重复/复杂度 → [{file, title, description, severity, originalCode, revisedCode, explanation}]"""
     if not context:
         context = "无额外上下文"
+    if not critic_feedback:
+        critic_feedback = "无（首轮分析）"
     prompt = QUALITY_PROMPT.format(
         filename=filename,
         code_content=code_content[:4000],
         context=context,
+        critic_feedback=critic_feedback,
     )
     text = await _chat(prompt, model, api_key)
     text = text.replace("```json", "").replace("```", "").strip()
