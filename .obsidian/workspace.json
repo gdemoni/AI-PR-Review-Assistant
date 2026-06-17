@@ -1,0 +1,207 @@
+{
+  "main": {
+    "id": "80e63fe4edb740c1",
+    "type": "split",
+    "children": [
+      {
+        "id": "6d67984fc177160b",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "765ad73e03c4c36b",
+            "type": "leaf",
+            "state": {
+              "type": "image",
+              "state": {
+                "file": "frame_600.png"
+              },
+              "icon": "lucide-image",
+              "title": "frame_600"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "8d98c193ff3fa124",
+    "type": "split",
+    "children": [
+      {
+        "id": "991174a0b2f324ea",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "d2da9a3635ec211d",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "文件列表"
+            }
+          },
+          {
+            "id": "a7e18156d3de9b89",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "搜索"
+            }
+          },
+          {
+            "id": "1635db18c64ee2fa",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "书签"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "f2ea7be0d2d48a96",
+    "type": "split",
+    "children": [
+      {
+        "id": "98d164d52817f35e",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "388f2bcd00ebe04b",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "核心功能.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "核心功能 的反向链接列表"
+            }
+          },
+          {
+            "id": "6e9f0a454033b8c6",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "核心功能.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "核心功能 的出链列表"
+            }
+          },
+          {
+            "id": "c723b84762133b59",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "标签"
+            }
+          },
+          {
+            "id": "b25f07da005b5894",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "添加笔记属性"
+            }
+          },
+          {
+            "id": "5b5c7c35e385401d",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "核心功能.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "核心功能 的大纲"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:打开快速切换": false,
+      "graph:查看关系图谱": false,
+      "canvas:新建白板": false,
+      "daily-notes:打开/创建今天的日记": false,
+      "templates:插入模板": false,
+      "command-palette:打开命令面板": false,
+      "bases:新建数据库": false
+    }
+  },
+  "active": "765ad73e03c4c36b",
+  "lastOpenFiles": [
+    "frame_641.png",
+    "frame_500.png",
+    "frame_400.png",
+    "frame_200.png",
+    "frame_50.png",
+    "frame_0.png",
+    "笔记.md",
+    "张书豪-苏州大学应用技术学院.pdf",
+    "简历——张书豪(1).pdf",
+    "~$6月10号6-7点-张书豪.pptx",
+    "6月10号6-7点-张书豪.pptx",
+    "~$-张书豪.pptx",
+    "-张书豪.pptx",
+    "~$路演-张书豪-ppt.pptx",
+    "路演-张书豪-ppt.pptx",
+    "AI_PR_Review_Assistant_路演_v3~90E5B.tmp",
+    "generate_ppt.py.tmp.9208.1d637b83e407",
+    "核心功能.md",
+    "README.md",
+    "hero.gif"
+  ]
+}

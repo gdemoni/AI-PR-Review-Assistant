@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   Merge,
   GitPullRequest,
@@ -18,6 +18,7 @@ import {
   Plus,
   ChevronDown,
   ChevronUp,
+  ChevronRight,
   RefreshCw,
   Sliders,
   Database,
@@ -30,9 +31,71 @@ import {
   Play,
   Undo,
   X,
+  GripVertical,
+  Menu,
+  PanelLeftClose,
+  PanelRightClose,
+  ListTree,
 } from "lucide-react";
 import { PRReviewData, ChangedFile, SuggestionItem, SandboxTemplate } from "./types";
 import { SANDBOX_TEMPLATES } from "./data/templates";
+import { DEMO_STEPS, DEMO_STEP_DELAYS, DEMO_DATA } from "./data/demo";
+
+// ── Helper: Collapsible long text block ──
+const SummaryBlock: React.FC<{ text: string }> = ({ text }) => {
+  const [expanded, setExpanded] = useState(false);
+  const isLong = text.length > 150;
+  return (
+    <div>
+      <p className={`text-xs text-text-primary/80 leading-relaxed ${!expanded && isLong ? "line-clamp-2" : ""}`}>
+        {text}
+      </p>
+      {isLong && (
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="text-[10px] text-accent-blue/60 hover:text-accent-blue mt-1 transition-colors"
+        >
+          {expanded ? "收起 ▲" : "展开全部 ▼"}
+        </button>
+      )}
+    </div>
+  );
+};
+
+// ── Helper: Code block with scroll, copy & collapse ──
+const CodeBlock: React.FC<{ code: string }> = ({ code }) => {
+  const [collapsed, setCollapsed] = useState(true);
+  const lines = code.split("\n");
+  const isLong = lines.length > 20;
+  const previewLines = lines.slice(0, 20).join("\n");
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    alert("已复制到剪贴板！");
+  };
+  return (
+    <div className="relative">
+      <div className="absolute top-2 right-2 z-10 flex items-center gap-1">
+        <button
+          onClick={() => copyToClipboard(code)}
+          className="px-2 py-1 bg-[#1A1A1A] border border-border-custom rounded text-[10px] text-text-secondary/60 hover:text-text-secondary transition-colors"
+        >
+          <Copy className="w-3 h-3" />
+        </button>
+      </div>
+      <pre className={`text-zinc-300 text-xs font-mono leading-relaxed whitespace-pre-wrap p-4 overflow-x-auto ${collapsed && isLong ? "max-h-[400px]" : "max-h-[70vh]"} overflow-y-auto`}>
+        <code>{collapsed && isLong ? previewLines : code}</code>
+      </pre>
+      {isLong && (
+        <button
+          onClick={() => setCollapsed(!collapsed)}
+          className="w-full py-2 bg-[#1A1A1A]/80 border-t border-border-custom text-[10px] text-text-secondary/50 hover:text-text-secondary transition-colors flex items-center justify-center gap-1"
+        >
+          {collapsed ? <><ChevronDown className="w-3 h-3" /> 展开全部代码 ({lines.length} 行)</> : <><ChevronUp className="w-3 h-3" /> 收起代码</>}
+        </button>
+      )}
+    </div>
+  );
+};
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<"home" | "dashboard" | "sandbox" | "checklist" | "history">("home");
@@ -43,10 +106,56 @@ export default function App() {
   // Custom API configuration or secret state
   const [apiError, setApiError] = useState<string | null>(null);
 
+  // ===== 🎭 Demo 路演模式 =====
+  const [isDemo, setIsDemo] = useState<boolean>(() => {
+    try { return localStorage.getItem("demo_mode") === "1"; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("demo_mode", isDemo ? "1" : "0"); } catch { /* 静默忽略 */ }
+  }, [isDemo]);
+  // 快捷键 Ctrl+Shift+D 切换 Demo 模式
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.shiftKey && e.key === "D") {
+        e.preventDefault();
+        setIsDemo(v => !v);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
   // Dynamic User-supplied Credentials Configuration
   const [githubToken, setGithubToken] = useState<string>(() => localStorage.getItem("github_token") || "");
   const [geminiApiKey, setGeminiApiKey] = useState<string>(() => localStorage.getItem("gemini_api_key") || "");
   const [customModel, setCustomModel] = useState<string>(() => localStorage.getItem("custom_model") || "");
+
+  // 自定义模型下拉菜单
+  const [showModelDropdown, setShowModelDropdown] = useState(false);
+  const modelDropdownRef = useRef<HTMLDivElement>(null);
+
+  const MODEL_OPTIONS = [
+    { value: "", label: "🖥️  使用服务器默认模型", desc: "由后台管理员预设的模型", helpUrl: "" },
+    { value: "deepseek-v4-pro", label: "⚡  DeepSeek V4 Pro", desc: "国产高性价比推理模型", helpUrl: "https://platform.deepseek.com/api_keys" },
+    { value: "qwen-plus", label: "🌀  通义千问 Plus", desc: "阿里云平衡型模型", helpUrl: "https://dashscope.console.aliyun.com/apiKey" },
+    { value: "qwen-max", label: "🚀  通义千问 Max", desc: "阿里云旗舰级模型", helpUrl: "https://dashscope.console.aliyun.com/apiKey" },
+    { value: "glm-4-flash", label: "✨  智谱 GLM-4 Flash", desc: "智谱轻量高速模型", helpUrl: "https://open.bigmodel.cn/usercenter/apikeys" },
+    { value: "moonshot-v1-8k", label: "🌙  Kimi moonshot-v1", desc: "月之暗面长上下文模型", helpUrl: "https://platform.moonshot.cn/console/api-keys" },
+    { value: "gpt-4o", label: "🤖  OpenAI GPT-4o", desc: "OpenAI 多模态旗舰模型", helpUrl: "https://platform.openai.com/api-keys" },
+  ];
+
+  // 点击外部关闭下拉菜单
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) {
+        setShowModelDropdown(false);
+      }
+    };
+    if (showModelDropdown) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showModelDropdown]);
 
   // Sync to localStorage
   useEffect(() => {
@@ -68,6 +177,13 @@ export default function App() {
   const [expandedSuggestion, setExpandedSuggestion] = useState<number | null>(0);
   const [filterLevel, setFilterLevel] = useState<"all" | "critical" | "warning">("all");
 
+  // Dashboard UI state
+  const [dashTab, setDashTab] = useState<"summary" | "diff" | "suggestions">("summary");
+  const [showFileList, setShowFileList] = useState(true);
+  const [showToc, setShowToc] = useState(false);
+  const [expandedCodeBlocks, setExpandedCodeBlocks] = useState<Record<number, boolean>>({});
+  const [expandAllSuggestions, setExpandAllSuggestions] = useState(false);
+
   // Automatically scroll and expand suggestions matching selected filename
   useEffect(() => {
     if (selectedFilename && reviewData && reviewData.suggestions) {
@@ -87,6 +203,46 @@ export default function App() {
 
   // AbortController — 用于取消正在进行的审查
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  // 浮动进度面板拖拽相关
+  const [panelPos, setPanelPos] = useState<{ x: number; y: number } | null>(null);
+  const isDraggingRef = useRef(false);
+  const dragStartRef = useRef({ mouseX: 0, mouseY: 0, panelX: 0, panelY: 0 });
+
+  const handlePanelDragStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isDraggingRef.current = true;
+    const panel = (e.currentTarget as HTMLElement).closest(".progress-panel") as HTMLElement;
+    if (!panel) return;
+    const rect = panel.getBoundingClientRect();
+    dragStartRef.current = {
+      mouseX: e.clientX,
+      mouseY: e.clientY,
+      panelX: panelPos ? rect.left : rect.left,
+      panelY: panelPos ? rect.top : rect.top,
+    };
+  }, [panelPos]);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDraggingRef.current) return;
+      const dx = e.clientX - dragStartRef.current.mouseX;
+      const dy = e.clientY - dragStartRef.current.mouseY;
+      setPanelPos({
+        x: dragStartRef.current.panelX + dx,
+        y: dragStartRef.current.panelY + dy,
+      });
+    };
+    const handleMouseUp = () => {
+      isDraggingRef.current = false;
+    };
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, []);
 
   // Sandbox Sandbox IDE states
   const [selectedSandboxTemplate, setSelectedSandboxTemplate] = useState<SandboxTemplate>(SANDBOX_TEMPLATES[0]);
@@ -135,6 +291,36 @@ export default function App() {
     setIsLoading(true);
     setApiError(null);
     setLoadingLogs([]);
+
+    // ===== 🎭 Demo 模式: 模拟完整审查流，10 步走完 ≈ 8~10s =====
+    if (isDemo) {
+      const startTime = Date.now();
+      for (let i = 0; i < DEMO_STEPS.length; i++) {
+        // 支持取消
+        if (controller.signal.aborted) break;
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(resolve, DEMO_STEP_DELAYS[i]);
+          controller.signal.addEventListener("abort", () => { clearTimeout(timer); reject(new DOMException("Aborted", "AbortError")); }, { once: true });
+        });
+        setLoadingLogs(prev => { const next = [...prev, DEMO_STEPS[i]]; return next.length > 6 ? next.slice(-6) : next; });
+      }
+      // ⏱ 兜底 padding: 如果总耗时少于 4s，补到约 9~10s
+      const elapsed = Date.now() - startTime;
+      if (elapsed < 4000) {
+        await new Promise(r => setTimeout(r, Math.max(0, 9000 - elapsed)));
+      }
+      if (!controller.signal.aborted) {
+        setReviewData(DEMO_DATA);
+        setSelectedFilename(DEMO_DATA.changedFiles[0]?.filename || "");
+        setAppliedSuggestions({});
+        setExpandedSuggestion(0);
+        setHistoryReports(prev => [{ id: String(Date.now()), title: DEMO_DATA.title, repo: DEMO_DATA.repo, author: DEMO_DATA.author, time: "刚刚", risksCount: DEMO_DATA.risks.length }, ...prev]);
+        setActiveTab("dashboard");
+      }
+      setIsLoading(false);
+      abortControllerRef.current = null;
+      return;
+    }
 
     try {
       const response = await fetch("/api/analyze-pr/stream", {
@@ -324,9 +510,9 @@ export default function App() {
   return (
     <div className="min-h-screen bg-bg text-text-primary font-sans flex flex-col" id="applet-container">
       {/* Top Navbar */}
-      <header className="sticky top-0 z-50 border-b border-border-custom bg-[#09090b]/80 backdrop-blur-md">
+      <header className="sticky top-0 z-50 border-b border-border-custom bg-[#121212]/80 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
+          <div className="flex items-center justify-between h-14">
             <div className="flex items-center gap-8">
               {/* Logo Area */}
               <div className="flex items-center gap-3">
@@ -456,11 +642,25 @@ export default function App() {
             </div>
           </div>
         </div>
+
+        {/* 🎭 Demo 切换 */}
+        <button
+          onClick={() => setIsDemo(!isDemo)}
+          title="Ctrl+Shift+D 切换路演模式"
+          className={`hidden lg:flex items-center gap-1.5 px-2.5 py-1 ml-3 rounded-full text-[10px] font-bold transition-all shrink-0 ${
+            isDemo
+              ? "bg-amber-500/15 text-amber-400 border border-amber-500/30 shadow-[0_0_12px_rgba(245,158,11,0.15)]"
+              : "bg-transparent text-text-secondary/25 border border-transparent hover:border-border-custom hover:text-text-secondary/60"
+          }`}
+        >
+          <span className={`w-1.5 h-1.5 rounded-full ${isDemo ? "bg-amber-400 animate-pulse" : "bg-zinc-600"}`} />
+          <span>{isDemo ? "DEMO 中" : "DEMO"}</span>
+        </button>
       </header>
 
       {/* Hero / Form Area */}
       {activeTab === "home" && (
-        <div className="w-full border-b border-border-custom bg-[#09090b]/40 relative overflow-hidden">
+        <div className="w-full border-b border-border-custom bg-[#121212]/40 relative overflow-hidden">
           {/* Subtle background glow */}
           <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[300px] bg-accent-blue/10 rounded-full blur-[100px] pointer-events-none"></div>
           
@@ -510,77 +710,157 @@ export default function App() {
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                   {/* GitHub Access Token field */}
-                  <div className="bg-[#111113] border border-border-custom/60 rounded-2xl p-5 hover:border-accent-blue/30 transition-colors duration-200 flex flex-col justify-between">
+                  <div className="relative bg-gradient-to-br from-[#111113] to-[#0d0d10] border border-border-custom/60 rounded-2xl p-5 hover:border-accent-blue/40 transition-all duration-300 flex flex-col justify-between group overflow-hidden">
+                    {/* Subtle top accent line */}
+                    <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-accent-blue/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                     <div>
-                      <div className="flex items-center gap-2.5 mb-2.5">
-                        <div className="w-7 h-7 rounded-lg bg-zinc-800/80 flex items-center justify-center text-zinc-300">
-                          <Github className="w-4 h-4" />
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-zinc-700/60 to-zinc-800/80 flex items-center justify-center text-zinc-200 shadow-sm">
+                            <Github className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <span className="text-xs font-bold text-text-primary block">GitHub Access Token</span>
+                            <span className="text-[10px] text-text-secondary">用于读取私有仓库并解除匿名率限制</span>
+                          </div>
                         </div>
-                        <div>
-                          <span className="text-xs font-bold text-text-primary block">GitHub Access Token</span>
-                          <span className="text-[10px] text-text-secondary">用于读取私有仓库并解除匿名率限制</span>
-                        </div>
+                        <a
+                          href="https://github.com/settings/tokens/new?description=AI+PR+Review+Assistant&scopes=repo"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-[10px] font-medium text-accent-blue hover:text-blue-400 bg-accent-blue/8 hover:bg-accent-blue/15 border border-accent-blue/20 hover:border-accent-blue/40 px-2.5 py-1.5 rounded-lg transition-all duration-200 whitespace-nowrap"
+                        >
+                          <ExternalLink className="w-3 h-3" />
+                          前往获取 Token
+                        </a>
                       </div>
-                      <div className="relative mt-2">
+                      <div className="relative mt-1">
                         <input
                           type="password"
                           placeholder="粘贴您的 GitHub 个人访问令牌 (ghp_***)"
-                          className="w-full bg-[#070708] border border-border-custom rounded-xl px-3.5 py-2.5 text-xs text-text-primary placeholder:text-zinc-600 focus:outline-none focus:border-accent-blue transition-colors font-mono"
+                          className="w-full bg-[#070708] border border-border-custom rounded-xl px-3.5 py-2.5 text-xs text-text-primary placeholder:text-zinc-600 focus:outline-none focus:border-accent-blue/60 focus:ring-1 focus:ring-accent-blue/20 transition-all font-mono"
                           value={githubToken}
                           onChange={(e) => setGithubToken(e.target.value)}
                         />
+                        {githubToken && (
+                          <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                          </div>
+                        )}
                       </div>
                     </div>
-                    <span className="text-[10px] text-text-secondary mt-3.5 block leading-relaxed">
-                      💡 如果分析私有库 Pull Request，请务必生成并粘贴拥有 <b>repo scope</b> 的专属 Access Token，系统将以此令牌安全代理拉取代码差分。
-                    </span>
+                    <div className="mt-3.5 bg-zinc-900/40 border border-zinc-800/50 rounded-lg px-3 py-2">
+                      <span className="text-[10px] text-text-secondary block leading-relaxed">
+                        💡 点击上方按钮跳转 GitHub，生成拥有 <b className="text-zinc-300">repo scope</b> 的 Classic Token，粘贴后即可安全代理拉取私有仓库差分数据。
+                      </span>
+                    </div>
                   </div>
 
                   {/* LLM Model Configuration field */}
-                  <div className="bg-[#111113] border border-border-custom/60 rounded-2xl p-5 hover:border-accent-purple/30 transition-colors duration-200 flex flex-col justify-between">
+                  <div className="relative bg-gradient-to-br from-[#111113] to-[#0e0b13] border border-border-custom/60 rounded-2xl p-5 hover:border-accent-purple/40 transition-all duration-300 flex flex-col justify-between group">
+                    {/* Subtle top accent line */}
+                    <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-accent-purple/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                     <div>
-                      <div className="flex items-center gap-2.5 mb-2.5">
-                        <div className="w-7 h-7 rounded-lg bg-zinc-800/80 flex items-center justify-center text-accent-purple">
-                          <Cpu className="w-4 h-4" />
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-purple-900/40 to-zinc-800/80 flex items-center justify-center text-accent-purple shadow-sm">
+                            <Cpu className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <span className="text-xs font-bold text-[#c4b0f5] block">LLM 大模型 API 配置</span>
+                            <span className="text-[10px] text-text-secondary">自定义审计引擎模型与 API 密钥</span>
+                          </div>
                         </div>
-                        <div>
-                          <span className="text-xs font-bold text-[#b49bf0] block">LLM 大模型 API 配置</span>
-                          <span className="text-[10px] text-text-secondary">自定义 LLM 模型与 API 密钥</span>
-                        </div>
+                        <span className="text-[9px] font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">可选配置</span>
                       </div>
                       
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
-                        <div>
-                          <label className="text-[10px] text-text-secondary block mb-1">首选审计引擎:</label>
-                          <select
-                            className="w-full bg-[#070708] border border-border-custom rounded-xl px-2 py-2 text-xs text-text-primary focus:outline-none focus:border-accent-purple transition-colors bg-none"
-                            value={customModel}
-                            onChange={(e) => setCustomModel(e.target.value)}
+                      <div className="space-y-3">
+                        {/* 模型选择 — 自定义下拉 */}
+                        <div ref={modelDropdownRef} className="relative">
+                          <label className="text-[10px] text-text-secondary block mb-1.5 font-medium flex items-center gap-1">
+                            <Sparkles className="w-2.5 h-2.5 text-accent-purple/70" />首选审计引擎
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setShowModelDropdown(!showModelDropdown)}
+                            className="w-full bg-[#070708] border border-border-custom hover:border-accent-purple/40 rounded-xl px-3.5 py-2.5 text-xs text-left flex items-center justify-between transition-all duration-200 focus:outline-none focus:border-accent-purple/60 focus:ring-1 focus:ring-accent-purple/20"
                           >
-                            <option value="">使用服务器默认模型</option>
-                            <option value="deepseek-v4-pro">DeepSeek V4 Pro</option>
-                            <option value="qwen-plus">通义千问 Plus</option>
-                            <option value="qwen-max">通义千问 Max</option>
-                            <option value="glm-4-flash">智谱 GLM-4 Flash</option>
-                            <option value="moonshot-v1-8k">Kimi moonshot-v1</option>
-                            <option value="gpt-4o">OpenAI GPT-4o</option>
-                          </select>
+                            <span className={customModel ? "text-text-primary" : "text-text-secondary"}>
+                              {MODEL_OPTIONS.find(o => o.value === customModel)?.label || "🖥️  使用服务器默认模型"}
+                            </span>
+                            <ChevronDown className={`w-3.5 h-3.5 text-text-secondary transition-transform duration-200 ${showModelDropdown ? "rotate-180" : ""}`} />
+                          </button>
+                          {/* 下拉菜单 */}
+                          {showModelDropdown && (
+                            <div className="absolute left-0 right-0 top-full mt-1.5 bg-[#111113] border border-border-custom rounded-xl shadow-2xl shadow-black/60 z-50 overflow-hidden py-1 max-h-[224px] overflow-y-auto">
+                              {MODEL_OPTIONS.map((opt) => {
+                                const isSelected = customModel === opt.value;
+                                return (
+                                  <button
+                                    key={opt.value}
+                                    type="button"
+                                    onClick={() => { setCustomModel(opt.value); setShowModelDropdown(false); }}
+                                    className={`w-full text-left px-4 py-2.5 flex items-start gap-3 transition-colors duration-150 ${
+                                      isSelected
+                                        ? "bg-accent-purple/10 border-l-2 border-accent-purple"
+                                        : "border-l-2 border-transparent hover:bg-zinc-800/50"
+                                    }`}
+                                  >
+                                    <div className="flex-1 min-w-0">
+                                      <span className={`text-xs block truncate ${isSelected ? "text-[#c4b0f5] font-semibold" : "text-text-primary"}`}>{opt.label}</span>
+                                      <span className="text-[10px] text-text-secondary mt-0.5 block">{opt.desc}</span>
+                                    </div>
+                                    {isSelected && <CheckCircle2 className="w-3.5 h-3.5 text-accent-purple mt-0.5 shrink-0" />}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
+
+                        {/* API 密钥 */}
                         <div>
-                          <label className="text-[10px] text-text-secondary block mb-1">LLM API 密钥:</label>
-                          <input
-                            type="password"
-                            placeholder="填写 LLM API 密钥"
-                            className="w-full bg-[#070708] border border-border-custom rounded-xl px-3 py-2 text-xs text-text-primary placeholder:text-zinc-600 focus:outline-none focus:border-accent-purple transition-colors font-mono"
-                            value={geminiApiKey}
-                            onChange={(e) => setGeminiApiKey(e.target.value)}
-                          />
+                          <label className="text-[10px] text-text-secondary block mb-1.5 font-medium flex items-center gap-1">
+                            <Shield className="w-2.5 h-2.5 text-accent-purple/70" />LLM API 密钥
+                          </label>
+                          <div className="relative">
+                            <input
+                              type="password"
+                              placeholder="填写与所选模型对应的 API 密钥"
+                              className="w-full bg-[#070708] border border-border-custom hover:border-accent-purple/40 rounded-xl px-3.5 py-2.5 text-xs text-text-primary placeholder:text-zinc-600 focus:outline-none focus:border-accent-purple/60 focus:ring-1 focus:ring-accent-purple/20 transition-all font-mono"
+                              value={geminiApiKey}
+                              onChange={(e) => setGeminiApiKey(e.target.value)}
+                            />
+                            {geminiApiKey && (
+                              <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                              </div>
+                            )}
+                          </div>
+                          {/* 选中模型后的 API 获取指引 */}
+                          {(() => {
+                            const selectedModel = MODEL_OPTIONS.find(o => o.value === customModel);
+                            if (!selectedModel?.helpUrl) return null;
+                            return (
+                              <a
+                                href={selectedModel.helpUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="mt-2 inline-flex items-center gap-1.5 text-[10px] text-accent-blue hover:text-blue-400 bg-accent-blue/5 hover:bg-accent-blue/10 border border-accent-blue/15 rounded-lg px-2.5 py-1.5 transition-all duration-200"
+                              >
+                                <ExternalLink className="w-2.5 h-2.5" />
+                                前往 {selectedModel.label.replace(/[🖥️⚡🌀🚀✨🌙🤖]/g, "").trim().split(" ")[0]} 官网获取 API Key
+                              </a>
+                            );
+                          })()}
                         </div>
                       </div>
                     </div>
-                    <span className="text-[10px] text-text-secondary mt-3 block leading-relaxed">
-                      💡 默认使用服务器后台预设的密钥环境。您亦可填写个人专用 API 密钥，大模型消耗及请求频率限额将归入您个人结算账户。
-                    </span>
+                    <div className="mt-3.5 bg-zinc-900/40 border border-zinc-800/50 rounded-lg px-3 py-2">
+                      <span className="text-[10px] text-text-secondary block leading-relaxed">
+                        💡 默认使用服务器后台预设密钥。您亦可填写个人 API 密钥，消耗归入个人账户，<b className="text-zinc-300">数据不经第三方中转</b>。
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -596,9 +876,10 @@ export default function App() {
           {apiError && (() => {
             const err = (apiError || "").toLowerCase();
             const isGithubToken = err.includes("token") || err.includes("401") || err.includes("403") || err.includes("私有仓库") || err.includes("repo scope");
+            const isGithubRateLimit = err.includes("速率限制") || err.includes("rate limit") || err.includes("60 次/小时");
             const isGithubNotFound = err.includes("404") || err.includes("不存在") || err.includes("链接是否正确");
             const isLlm = err.includes("api key") || err.includes("llm") || err.includes("模型") || err.includes("密钥") || err.includes("供应商") || err.includes("provider") || err.includes("api_key");
-            const title = isGithubToken || isGithubNotFound ? "GitHub API 错误" : isLlm ? "LLM 调用错误" : "PR 审查执行出错";
+            const title = isGithubRateLimit ? "⚠️ GitHub API 速率限制" : isGithubToken || isGithubNotFound ? "GitHub API 错误" : isLlm ? "LLM 调用错误" : "PR 审查执行出错";
             return (
             <div className="mb-6 bg-red-950/20 border border-red-500/30 text-red-100 p-4 rounded-xl text-xs flex flex-col gap-2 relative">
               <div className="flex items-start gap-2.5">
@@ -611,7 +892,9 @@ export default function App() {
               <div className="mt-2 pl-6 pt-2 border-t border-red-950/40 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
                 <span className="text-red-400 shrink-0">💡 解决办法:</span>
                 <span className="text-red-300">
-                  {isGithubToken ? (
+                  {isGithubRateLimit ? (
+                    <>GitHub 未认证请求限额仅 <strong>60 次/小时</strong>，请<a href="https://github.com/settings/tokens/new?description=AI+PR+Review+Assistant&scopes=repo" target="_blank" rel="noopener noreferrer" className="underline mx-1 font-medium">点击获取 Token</a>并在上方填写，可提升至 <strong>5000 次/小时</strong>，或稍后再试</>
+                  ) : isGithubToken ? (
                     <>请在上方填写有效的 <strong className="underline mx-1 cursor-pointer" onClick={() => setActiveTab("home")}>GitHub Access Token</strong>（需 Classic Token 且勾选 repo scope）</>
                   ) : isGithubNotFound ? (
                     <>请检查 PR 链接是否正确，如为私有仓库请填写 <strong className="underline mx-1 cursor-pointer" onClick={() => setActiveTab("home")}>GitHub Access Token</strong></>
@@ -632,401 +915,643 @@ export default function App() {
             );
           })()}
 
-          {/* 非阻塞顶部进度条 — 审查中可自由切换 Tab */}
+          {/* 浮动左侧进度面板 — 审查中显示，不阻塞页面交互 */}
           {isLoading && (
-            <div className="sticky top-0 z-40 w-full bg-[#09090b]/95 backdrop-blur-md border-b border-accent-blue/20 px-4 py-2.5 shadow-lg shadow-accent-blue/5">
-              <div className="max-w-7xl mx-auto flex items-center gap-3">
-                <div className="relative shrink-0">
-                  <div className="w-5 h-5 rounded-full border-2 border-accent-blue/20 border-t-accent-blue animate-spin"></div>
-                  <Sparkles className="w-2.5 h-2.5 text-accent-purple absolute inset-0 m-auto animate-pulse" />
-                </div>
-                <span className="text-sm font-semibold text-text-primary flex-1">AI 深度审计中</span>
-                <button
-                  onClick={handleCancelAnalysis}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 hover:border-red-500/50 text-red-400 hover:text-red-300 rounded-lg text-xs font-semibold transition-all cursor-pointer"
-                  title="取消审查"
-                >
-                  <X className="w-3.5 h-3.5" />
-                  <span>取消</span>
-                </button>
-              </div>
-              <div className="max-w-7xl mx-auto mt-1.5 space-y-1">
-                {loadingLogs.map((log, i) => (
-                  <div key={i} className="flex items-start gap-2.5">
-                    <div className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${i === loadingLogs.length - 1 ? "bg-accent-blue animate-pulse" : "bg-border-custom"}`}></div>
-                    <p className="text-[11px] text-text-secondary leading-relaxed">{log}</p>
+            <div
+              className={`progress-panel fixed z-50 w-[340px] sm:w-[380px] progress-panel-enter select-none ${
+                panelPos ? "" : "left-4 sm:left-6 top-1/2 -translate-y-1/2"
+              }`}
+              style={panelPos ? { left: panelPos.x, top: panelPos.y, transform: "none" } : undefined}
+            >
+                <div className="bg-gradient-to-b from-[#131316] to-[#0e0e12] border border-border-custom rounded-2xl shadow-2xl shadow-black/50 overflow-hidden">
+                  {/* 顶部渐变装饰线 */}
+                  <div className="h-[2px] bg-gradient-to-r from-accent-blue via-accent-purple to-accent-blue" />
+                  
+                  {/* 拖动把手 + 标题栏 */}
+                  <div
+                    className="px-4 pt-4 pb-2 flex items-center gap-2 cursor-grab active:cursor-grabbing border-b border-border-custom/30"
+                    onMouseDown={handlePanelDragStart}
+                  >
+                    <GripVertical className="w-3.5 h-3.5 text-text-secondary/50" />
+                    <span className="text-[10px] text-text-secondary/60 uppercase tracking-wider font-mono">拖拽移动</span>
                   </div>
-                ))}
+                  <div className="px-5 pt-3 pb-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="relative">
+                          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-accent-blue/20 to-accent-purple/20 border border-accent-blue/30 flex items-center justify-center">
+                            <Sparkles className="w-4 h-4 text-accent-blue animate-pulse" />
+                          </div>
+                          {/* 外圈旋转 */}
+                          <div className="absolute -inset-1 rounded-xl border-2 border-accent-blue/20 border-t-accent-blue animate-spin" />
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-bold text-text-primary">AI 深度审计中</h3>
+                          <p className="text-[10px] text-text-secondary mt-0.5">正在分析代码差异与安全风险</p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={handleCancelAnalysis}
+                        className="flex items-center gap-1 px-2.5 py-1.5 bg-red-500/8 hover:bg-red-500/15 border border-red-500/20 hover:border-red-500/40 text-red-400 hover:text-red-300 rounded-lg text-[10px] font-semibold transition-all cursor-pointer"
+                        title="取消审查"
+                      >
+                        <X className="w-3 h-3" />
+                        <span>取消</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 分隔线 */}
+                  <div className="mx-5 border-t border-border-custom/60" />
+
+                  {/* 步骤日志 */}
+                  <div className="px-5 py-4 max-h-[280px] overflow-y-auto space-y-0.5">
+                    {loadingLogs.map((log, i) => {
+                      const isLast = i === loadingLogs.length - 1;
+                      const isDone = !isLast;
+                      return (
+                        <div key={i} className="flex items-start gap-3 py-1.5">
+                          {/* 时间线指示器 */}
+                          <div className="flex flex-col items-center pt-0.5">
+                            {isDone ? (
+                              <div className="w-5 h-5 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center">
+                                <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                              </div>
+                            ) : (
+                              <div className="w-5 h-5 rounded-full bg-accent-blue/15 border border-accent-blue/40 flex items-center justify-center">
+                                <div className="w-2 h-2 rounded-full bg-accent-blue animate-pulse" />
+                              </div>
+                            )}
+                            {/* 连接线 */}
+                            {!isLast && <div className="w-[1px] h-3 bg-border-custom/60 mt-1" />}
+                          </div>
+                          {/* 日志文本 */}
+                          <p className={`text-[11px] leading-relaxed pt-0.5 ${
+                            isDone ? "text-text-secondary" : "text-text-primary font-medium"
+                          }`}>{log}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* 底部状态条 */}
+                  <div className="px-5 pb-4">
+                    <div className="bg-zinc-900/50 border border-zinc-800/50 rounded-lg px-3 py-2.5 flex items-center gap-2.5">
+                      <div className="w-1.5 h-1.5 rounded-full bg-accent-blue animate-pulse" />
+                      <span className="text-[10px] text-text-secondary">审查完成后将自动跳转结果面板</span>
+                    </div>
+                  </div>
+                </div>
               </div>
-            </div>
           )}
 
           <>
             {/* PAGE 1: PR REVIEW DASHBOARD */}
             {activeTab === "dashboard" && reviewData && (
-                <div className="space-y-6" id="dashboard-tab">
+                <div className="space-y-4" id="dashboard-tab">
                   
-                  {/* Dashboard stats cards top line - Sleek Interface style */}
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4" id="stats-ribbon">
-                    <div className="bg-surface border border-border-custom rounded-xl p-5 hover:border-accent-blue/20 transition-all group duration-300">
-                      <span className="text-[10px] text-text-secondary uppercase tracking-wider font-mono block mb-1">SCAN SOURCE REPO</span>
-                      <h4 className="text-sm font-semibold text-text-primary leading-snug truncate group-hover:text-accent-blue transition-colors">
-                        {reviewData.repo}
-                      </h4>
-                      <p className="text-[11px] text-text-secondary mt-1 flex items-center gap-1">
-                        <span>提交者:</span>
-                        <span className="font-mono text-text-primary font-medium">{reviewData.author}</span>
-                      </p>
-                    </div>
-
-                    <div className="bg-surface border border-border-custom rounded-xl p-5">
-                      <span className="text-[10px] text-text-secondary uppercase tracking-wider font-mono block mb-1">TOTAL ANALYZED FILES</span>
-                      <div className="flex items-baseline gap-2">
-                        <span className="text-3xl font-bold font-mono">{reviewData.filesCount}</span>
-                        <span className="text-xs text-text-secondary">Files changed</span>
-                      </div>
-                      <p className="text-[11px] text-text-secondary mt-1">代码完整度 100% 深度审计</p>
-                    </div>
-
-                    <div className="bg-surface border border-red-950/20 rounded-xl p-5 relative overflow-hidden">
-                      <div className="absolute right-3 top-3 w-2 h-2 bg-red-500 rounded-full animate-ping"></div>
-                      <span className="text-[10px] text-red-400 uppercase tracking-wider font-mono block mb-1">CRITICAL RISKS SPEC</span>
-                      <div className="flex items-baseline gap-2">
-                        <span className="text-3xl font-bold font-mono text-red-500">
-                          {reviewData.risks.filter(r => r.level === "high").length}
-                        </span>
-                        <span className="text-xs text-red-400">🚨 严重漏洞</span>
-                      </div>
-                      <p className="text-[11px] text-text-secondary mt-1">急需修复代码安全隐患</p>
-                    </div>
-
-                    <div className="bg-surface border border-border-custom rounded-xl p-5">
-                      <span className="text-[10px] text-text-secondary uppercase tracking-wider font-mono block mb-1">AI REMEDIAL SUGGESTIONS</span>
-                      <div className="flex items-baseline gap-2">
-                        <span className="text-3xl font-bold font-mono text-accent-purple">{reviewData.suggestions.length}</span>
-                        <span className="text-xs text-text-secondary">优化建议</span>
-                      </div>
-                      <p className="text-[11px] text-text-secondary mt-1 font-mono text-accent-purple/80">
-                        {Object.keys(appliedSuggestions).length} 已一键采纳应用
-                      </p>
-                    </div>
+                  {/* Compact metrics bar — horizontal tags */}
+                  <div className="flex items-center gap-3 px-4 py-2.5 bg-[#1A1A1A] border border-border-custom rounded-xl text-[11px] font-mono" id="stats-ribbon">
+                    <span className="text-text-secondary/50">📋</span>
+                    <span className="text-text-primary font-semibold truncate max-w-[200px]">{reviewData.repo}</span>
+                    <span className="text-border-custom/40">|</span>
+                    <span className="text-text-secondary">提交者 <span className="text-text-primary">{reviewData.author}</span></span>
+                    <span className="text-border-custom/40">|</span>
+                    <span className="text-text-secondary">文件 <span className="text-text-primary font-bold">{reviewData.filesCount}</span></span>
+                    <span className="text-border-custom/40">|</span>
+                    <span className="flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                      <span className="text-red-400 font-bold">{reviewData.risks.filter(r => r.level === "high").length}</span>
+                      <span className="text-text-secondary/60">高危</span>
+                    </span>
+                    <span className="text-border-custom/40">|</span>
+                    <span className="text-text-secondary">建议 <span className="text-accent-purple font-bold">{reviewData.suggestions.length}</span></span>
+                    <span className="text-border-custom/40">|</span>
+                    <span className={`font-bold ${reviewData.risks.filter(r => r.level === "high").length === 0 ? "text-emerald-400" : "text-red-400"}`}>
+                      {reviewData.risks.filter(r => r.level === "high").length === 0 ? "A+" : "C-"}
+                    </span>
+                    <div className="flex-1" />
+                    <button onClick={() => setShowFileList(!showFileList)} className="text-[10px] text-text-secondary/50 hover:text-text-secondary transition-colors">
+                      {showFileList ? "隐藏" : "显示"}文件列表
+                    </button>
+                    <button onClick={() => setShowToc(!showToc)} className="text-[10px] text-text-secondary/50 hover:text-text-secondary transition-colors">
+                      目录
+                    </button>
                   </div>
 
                   {/* Overview Executive description */}
-                  <div className="bg-[#101014] border border-border-custom rounded-2xl p-6 relative overflow-hidden card-shimmer" id="ai-exec-summary">
-                    {/* Radial background pulse */}
-                    <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(59,130,246,0.06),transparent,transparent)] pointer-events-none"></div>
-                    <div className="flex items-center gap-2.5 mb-3 relative z-10">
-                      <div className="w-6 h-6 rounded-full bg-accent-blue/10 flex items-center justify-center border border-accent-blue/20">
-                        <Sparkles className="w-3.5 h-3.5 text-accent-blue" />
-                      </div>
-                      <span className="text-xs font-bold text-accent-blue font-mono uppercase tracking-widest">
-                        AI EXECUTIVE SUMMARY / 架构师评述
-                      </span>
-                    </div>
-                    <p className="text-sm text-text-primary leading-relaxed relative z-10-variant font-medium">
+                  <div className="bg-[#1A1A1A] border border-border-custom rounded-xl p-4" id="ai-exec-summary">
+                    <p className="text-xs text-text-primary leading-relaxed line-clamp-2">
                       {reviewData.summary}
                     </p>
                   </div>
 
-                  {/* Primary split layout: left column (diff explore) vs right column (suggestions) */}
-                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                  {/* Three-column layout */}
+                  <div className="flex gap-4" id="three-col-layout">
                     
-                    {/* Left Panel: Files and Code Sandbox View (span 5) */}
-                    <div className="lg:col-span-5 flex flex-col gap-6" id="files-list-col">
-                      <div className="bg-surface border border-border-custom rounded-2xl overflow-hidden flex flex-col">
-                        <div className="px-5 py-4 border-b border-border-custom flex items-center justify-between bg-zinc-900/30">
-                          <div className="flex items-center gap-2">
-                            <Folder className="w-4 h-4 text-accent-blue" />
-                            <span className="text-[11px] font-bold uppercase text-text-secondary tracking-widest">
-                              CHANGED FILE TREE / 变更目录
-                            </span>
+                    {/* ── LEFT: File list sidebar (collapsible) ── */}
+                    {showFileList && (
+                      <div className="w-[220px] shrink-0" id="files-list-col">
+                        <div className="bg-[#1A1A1A] border border-border-custom rounded-xl overflow-hidden flex flex-col max-h-[calc(100vh-260px)] sticky top-[72px]">
+                          <div className="px-3 py-2.5 border-b border-border-custom flex items-center justify-between">
+                            <span className="text-[10px] font-bold uppercase text-text-secondary/60 tracking-wider">变更文件</span>
+                            <div className="flex items-center gap-1">
+                              <span className="text-[10px] font-mono text-text-secondary/40">{reviewData.filesCount}</span>
+                              <button onClick={() => setShowFileList(false)} className="text-text-secondary/30 hover:text-text-secondary/60 transition-colors" title="隐藏文件列表">
+                                <PanelLeftClose className="w-3 h-3" />
+                              </button>
+                            </div>
                           </div>
-                          <span className="text-[11px] font-mono text-text-secondary">
-                            {reviewData.changedFiles.length} 个受影响组件
-                          </span>
-                        </div>
-
-                        {/* File tree navigation list */}
-                        <div className="divide-y divide-border-custom/50">
-                          {reviewData.changedFiles.map((file) => (
-                            <button
-                              key={file.filename}
-                              onClick={() => setSelectedFilename(file.filename)}
-                              className={`w-full text-left px-5 py-3.5 transition-all text-xs flex items-center justify-between cursor-pointer ${
-                                selectedFilename === file.filename
-                                  ? "bg-zinc-900/50 border-l-[3px] border-accent-blue pl-[17px]"
-                                  : "hover:bg-white/[0.01]"
-                              }`}
-                            >
-                              <div className="flex items-center gap-2.5 min-w-0 pr-2">
-                                <FileCode className={`w-4 h-4 shrink-0 ${
-                                  selectedFilename === file.filename ? "text-accent-blue" : "text-text-secondary"
-                                }`} />
-                                <span className={`font-mono truncate ${
-                                  selectedFilename === file.filename ? "text-text-primary font-semibold" : "text-text-secondary"
-                                }`}>
-                                  {file.filename}
-                                </span>
-                              </div>
-
-                              {/* Badges for risks */}
-                              {file.riskLevel === "high" ? (
-                                <span className="bg-red-500/10 text-red-400 border border-red-500/20 text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded uppercase shrink-0">
-                                  高风险
-                                </span>
-                              ) : file.riskLevel === "medium" ? (
-                                <span className="bg-yellow-500/10 text-yellow-500 border border-yellow-500/20 text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded uppercase shrink-0">
-                                  中风险
-                                </span>
-                              ) : file.riskLevel === "low" ? (
-                                <span className="bg-zinc-500/10 text-text-secondary border border-zinc-700 text-[9px] font-mono px-1.5 py-0.5 rounded uppercase shrink-0">
-                                  低风险
-                                </span>
-                              ) : (
-                                <span className="text-[#10b981] bg-[#10b981]/10 border border-[#10b981]/20 text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded uppercase shrink-0 flex items-center gap-1">
-                                  <Check className="w-2.5 h-2.5" /> 优化好
-                                </span>
-                              )}
-                            </button>
-                          ))}
+                          <div className="overflow-y-auto flex-1 py-1">
+                            {reviewData.changedFiles.map((file) => {
+                              const isActive = selectedFilename === file.filename;
+                              return (
+                                <button
+                                  key={file.filename}
+                                  onClick={() => { setSelectedFilename(file.filename); setDashTab("diff"); }}
+                                  title={file.filename}
+                                  className={`w-full text-left px-3 py-2 text-[11px] font-mono flex items-center gap-2 cursor-pointer transition-all group relative ${
+                                    isActive
+                                      ? "bg-accent-blue/10 border-l-[3px] border-accent-blue pl-[9px] text-text-primary"
+                                      : "border-l-[3px] border-transparent pl-[9px] text-text-secondary/60 hover:bg-white/[0.03] hover:text-text-secondary"
+                                  }`}
+                                >
+                                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                                    file.riskLevel === "high" ? "bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.5)]" 
+                                    : file.riskLevel === "medium" ? "bg-yellow-500" 
+                                    : file.riskLevel === "low" ? "bg-zinc-500" 
+                                    : "bg-emerald-500"
+                                  }`} />
+                                  <span className="truncate">{file.filename.split("/").pop()}</span>
+                                  {/* Tooltip on hover */}
+                                  <span className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2 px-2.5 py-1.5 bg-[#2A2A2A] border border-border-custom rounded-lg text-[10px] text-text-secondary whitespace-nowrap z-50 shadow-xl opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+                                    {file.filename}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
                         </div>
                       </div>
+                    )}
 
-                      {/* Code file live viewer container */}
-                      {activeFileObject && (
-                        <div className="bg-surface border border-border-custom rounded-2xl overflow-hidden flex flex-col">
-                          <div className="px-5 py-3 border-b border-border-custom flex items-center justify-between bg-zinc-900/10 font-mono text-xs text-text-secondary">
-                            <span className="truncate">{activeFileObject.filename} (源文件速览)</span>
-                            <button 
-                              className="text-accent-blue hover:underline text-[11px] shrink-0"
-                              onClick={() => {
-                                // Jump to sandbox with corresponding file loaded!
-                                const matchingTpl = SANDBOX_TEMPLATES.find(t => t.files.some(f => f.filename === activeFileObject.filename)) || SANDBOX_TEMPLATES[0];
-                                handleSelectSandboxTemplate(matchingTpl);
-                                setActiveSandboxFilename(activeFileObject.filename);
-                                setActiveTab("sandbox");
-                              }}
+                    {/* Show file list toggle when hidden */}
+                    {!showFileList && (
+                      <button
+                        onClick={() => setShowFileList(true)}
+                        className="shrink-0 mt-2 text-text-secondary/30 hover:text-text-secondary/60 transition-colors"
+                        title="显示文件列表"
+                      >
+                        <PanelLeftClose className="w-4 h-4 rotate-180" />
+                      </button>
+                    )}
+
+                    {/* ── CENTER: Tabbed main content ── */}
+                    <div className="flex-1 min-w-0" id="main-content-col">
+                      
+                      {/* Tab Navigation Bar */}
+                      <div className="flex items-center gap-0.5 mb-3 bg-[#1A1A1A] border border-border-custom rounded-xl p-1">
+                        {[
+                          { key: "summary", label: "概览", icon: <Info className="w-3.5 h-3.5" /> },
+                          { key: "diff", label: "代码对比", icon: <FileCode className="w-3.5 h-3.5" /> },
+                          { key: "suggestions", label: "改良建议", icon: <Lightbulb className="w-3.5 h-3.5" />, badge: reviewData.suggestions.length },
+                        ].map((tab: any) => (
+                          <button
+                            key={tab.key}
+                            onClick={() => setDashTab(tab.key)}
+                            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-medium transition-all duration-200 ${
+                              dashTab === tab.key
+                                ? "bg-surface text-text-primary shadow-sm"
+                                : "text-text-secondary/50 hover:text-text-secondary hover:bg-white/[0.02]"
+                            }`}
+                          >
+                            {tab.icon}
+                            <span className="hidden sm:inline">{tab.label}</span>
+                            {tab.badge !== undefined && (
+                              <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
+                                dashTab === tab.key ? "bg-accent-blue/15 text-accent-blue" : "bg-transparent text-text-secondary/40"
+                              }`}>
+                                {tab.badge}
+                              </span>
+                            )}
+                          </button>
+                        ))}
+                        <div className="flex-1" />
+                        {/* Collapse/Expand All */}
+                        {dashTab === "suggestions" && (
+                          <button
+                            onClick={() => { setExpandAllSuggestions(!expandAllSuggestions); setExpandedCodeBlocks({}); }}
+                            className="px-3 py-1.5 text-[10px] text-text-secondary/50 hover:text-text-secondary border-l border-border-custom/60 flex items-center gap-1 transition-colors"
+                          >
+                            {expandAllSuggestions ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                            <span>{expandAllSuggestions ? "折叠所有" : "展开所有"}</span>
+                          </button>
+                        )}
+                      </div>
+
+                      {/* ── Tab: 概览 ── */}
+                      {dashTab === "summary" && (
+                        <div className="space-y-3">
+                          {/* Risk Filter Cards */}
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <div 
+                              onClick={() => { setFilterLevel(filterLevel === "critical" ? "all" : "critical"); setDashTab("suggestions"); }}
+                              className={`bg-surface border p-3.5 rounded-xl flex items-center gap-3 cursor-pointer transition-all duration-200 hover:-translate-y-0.5 ${
+                                filterLevel === "critical" 
+                                  ? "border-red-500/60 ring-1 ring-red-500/40 shadow-lg shadow-red-500/10" 
+                                  : "border-red-500/15 hover:border-red-500/30"
+                              }`}
                             >
-                              跳转沙盒编辑
-                            </button>
+                              <div className="w-9 h-9 rounded-lg bg-red-500/10 border border-red-500/20 flex items-center justify-center shrink-0">
+                                <AlertTriangle className="w-4 h-4 text-red-400" />
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-[10px] text-text-secondary/60 font-mono uppercase tracking-wider">高危阻断</p>
+                                <p className="text-sm font-bold text-red-400">{reviewData.risks.filter(r => r.level === "high").length} 项</p>
+                              </div>
+                            </div>
+
+                            <div 
+                              onClick={() => { setFilterLevel(filterLevel === "warning" ? "all" : "warning"); setDashTab("suggestions"); }}
+                              className={`bg-surface border p-3.5 rounded-xl flex items-center gap-3 cursor-pointer transition-all duration-200 hover:-translate-y-0.5 ${
+                                filterLevel === "warning" 
+                                  ? "border-yellow-500/60 ring-1 ring-yellow-500/40 shadow-lg shadow-yellow-500/10" 
+                                  : "border-yellow-500/15 hover:border-yellow-500/30"
+                              }`}
+                            >
+                              <div className="w-9 h-9 rounded-lg bg-yellow-500/10 border border-yellow-500/20 flex items-center justify-center shrink-0">
+                                <Info className="w-4 h-4 text-yellow-400" />
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-[10px] text-text-secondary/60 font-mono uppercase tracking-wider">中度预警</p>
+                                <p className="text-sm font-bold text-yellow-400">{reviewData.risks.filter(r => r.level === "medium").length} 项</p>
+                              </div>
+                            </div>
+
+                            <div 
+                              onClick={() => { setFilterLevel("all"); setDashTab("suggestions"); }}
+                              className={`bg-surface border p-3.5 rounded-xl flex items-center gap-3 cursor-pointer transition-all duration-200 hover:-translate-y-0.5 ${
+                                filterLevel === "all" 
+                                  ? "border-accent-blue/60 ring-1 ring-accent-blue/40 shadow-lg shadow-accent-blue/10" 
+                                  : "border-border-custom hover:border-accent-blue/30"
+                              }`}
+                            >
+                              <div className="w-9 h-9 rounded-lg bg-accent-blue/10 border border-accent-blue/20 flex items-center justify-center shrink-0">
+                                <Shield className="w-4 h-4 text-accent-blue" />
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-[10px] text-text-secondary/60 font-mono uppercase tracking-wider">安全评分</p>
+                                <p className={`text-sm font-bold font-mono ${reviewData.risks.filter(r => r.level === "high").length === 0 ? "text-emerald-400" : "text-red-400"}`}>
+                                  {reviewData.risks.filter(r => r.level === "high").length === 0 ? "A+" : "C-"}
+                                </p>
+                              </div>
+                            </div>
                           </div>
-                          
-                          <div className="p-4 overflow-x-auto bg-[#040406] max-h-80 overflow-y-auto">
-                            <pre className="text-xs font-mono text-zinc-300 leading-relaxed">
-                              <code>
-                                {activeFileObject.content.split("\n").map((line, idx) => (
-                                  <div key={idx} className={`table-row ${line.includes("💣") ? "bg-red-950/20 text-red-300" : ""}`}>
-                                    <span className="table-cell select-none pr-4 text-[10px] text-zinc-600 text-right w-8">{idx + 1}</span>
-                                    <span className="table-cell whitespace-pre-wrap">{line}</span>
-                                  </div>
-                                ))}
-                              </code>
-                            </pre>
+
+                          {/* Full Summary with expand */}
+                          <div className="bg-surface border border-border-custom rounded-xl p-4">
+                            <SummaryBlock text={reviewData.summary} />
+                          </div>
+
+                          {/* Quick Stats */}
+                          <div className="bg-[#1A1A1A] border border-border-custom rounded-xl p-4">
+                            <h4 className="text-[11px] font-bold text-text-secondary/50 uppercase tracking-wider mb-3">审查统计</h4>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
+                              <div>
+                                <span className="text-text-secondary/50">变更文件</span>
+                                <p className="text-text-primary font-bold font-mono mt-0.5">{reviewData.filesCount}</p>
+                              </div>
+                              <div>
+                                <span className="text-text-secondary/50">高危风险</span>
+                                <p className="text-red-400 font-bold font-mono mt-0.5">{reviewData.risks.filter(r => r.level === "high").length}</p>
+                              </div>
+                              <div>
+                                <span className="text-text-secondary/50">中危风险</span>
+                                <p className="text-yellow-400 font-bold font-mono mt-0.5">{reviewData.risks.filter(r => r.level === "medium").length}</p>
+                              </div>
+                              <div>
+                                <span className="text-text-secondary/50">改良建议</span>
+                                <p className="text-accent-purple font-bold font-mono mt-0.5">{reviewData.suggestions.length}</p>
+                              </div>
+                            </div>
                           </div>
                         </div>
                       )}
-                    </div>
 
-                    {/* Right Panel: Risk Counters & Deep Recommendations suggestions (span 7) */}
-                    <div className="lg:col-span-7 flex flex-col gap-6" id="suggestions-col">
-                      
-                      {/* Risk blocks counters banner */}
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                        <div 
-                          onClick={() => setFilterLevel(filterLevel === "critical" ? "all" : "critical")}
-                          className={`bg-surface border p-4 rounded-xl flex items-center gap-3 cursor-pointer transition-all duration-200 hover:bg-[#141416] hover:-translate-y-0.5 ${filterLevel === "critical" ? "border-red-500 ring-1 ring-red-500/50 shadow-lg shadow-red-500/10" : "border-red-500/20 shadow-sm"}`}
-                        >
-                          <AlertTriangle className="w-5 h-5 text-red-500 shrink-0" />
-                          <div>
-                            <p className="text-[10px] text-text-secondary font-mono uppercase tracking-wider">高危阻断项目</p>
-                            <p className="text-sm font-semibold text-text-primary">
-                              {reviewData.risks.filter(r => r.level === "high").length} 个未解决
-                            </p>
-                          </div>
+                      {/* ── Tab: 代码对比 ── */}
+                      {dashTab === "diff" && (
+                        <div>
+                          {activeFileObject ? (
+                            <div className="bg-surface border border-border-custom rounded-xl overflow-hidden">
+                              <div className="px-4 py-2.5 border-b border-border-custom flex items-center justify-between">
+                                <div className="flex items-center gap-2 text-xs font-mono">
+                                  <FileCode className="w-3.5 h-3.5 text-text-secondary/50" />
+                                  <span className="text-text-primary font-semibold">{activeFileObject.filename.split("/").pop()}</span>
+                                  <span className="text-text-secondary/30">—</span>
+                                  <span className="text-text-secondary/40 text-[10px]">{activeFileObject.filename}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span className={`px-2 py-0.5 rounded text-[9px] font-bold font-mono uppercase ${
+                                    activeFileObject.riskLevel === "high" ? "bg-red-500/15 text-red-400 border border-red-500/20" :
+                                    activeFileObject.riskLevel === "medium" ? "bg-yellow-500/10 text-yellow-400 border border-yellow-500/20" :
+                                    activeFileObject.riskLevel === "low" ? "bg-zinc-800 text-text-secondary border border-zinc-700" :
+                                    "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                                  }`}>
+                                    {activeFileObject.riskLevel === "high" ? "高危" : activeFileObject.riskLevel === "medium" ? "中危" : activeFileObject.riskLevel === "low" ? "低危" : "安全"}
+                                  </span>
+                                  <button onClick={() => copyToClipboard(activeFileObject.content)} className="text-text-secondary/30 hover:text-text-secondary/60 transition-colors">
+                                    <Copy className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              </div>
+                              <CodeBlock code={activeFileObject.content} />
+                            </div>
+                          ) : (
+                            <div className="flex flex-col items-center justify-center py-20 text-center bg-surface border border-border-custom rounded-xl">
+                              <FileCode className="w-10 h-10 text-text-secondary/15 mb-4" />
+                              <p className="text-sm text-text-secondary/40">请从左侧文件列表选择一个文件查看差异</p>
+                              {!showFileList && (
+                                <button onClick={() => setShowFileList(true)} className="mt-3 text-xs text-accent-blue/60 hover:text-accent-blue">
+                                  显示文件列表 →
+                                </button>
+                              )}
+                            </div>
+                          )}
                         </div>
+                      )}
 
-                        <div 
-                          onClick={() => setFilterLevel(filterLevel === "warning" ? "all" : "warning")}
-                          className={`bg-surface border p-4 rounded-xl flex items-center gap-3 cursor-pointer transition-all duration-200 hover:bg-[#141416] hover:-translate-y-0.5 ${filterLevel === "warning" ? "border-yellow-500 ring-1 ring-yellow-500/50 shadow-lg shadow-yellow-500/10" : "border-yellow-500/20 shadow-sm"}`}
-                        >
-                          <Info className="w-5 h-5 text-yellow-500 shrink-0" />
-                          <div>
-                            <p className="text-[10px] text-text-secondary font-mono uppercase tracking-wider">中度安全性漏洞</p>
-                            <p className="text-sm font-semibold text-text-primary">
-                              {reviewData.risks.filter(r => r.level === "medium").length} 个预警
-                            </p>
-                          </div>
-                        </div>
-
-                        <div 
-                          onClick={() => setFilterLevel("all")}
-                          className={`bg-surface border p-4 rounded-xl flex items-center gap-3 cursor-pointer transition-all duration-200 hover:bg-[#141416] hover:-translate-y-0.5 ${filterLevel === "all" ? "border-accent-blue ring-1 ring-accent-blue/50 shadow-lg shadow-accent-blue/10" : "border-border-custom shadow-sm"}`}
-                        >
-                          <CheckCircle2 className={`w-5 h-5 shrink-0 ${filterLevel === "all" ? "text-accent-blue" : "text-[#10b981]"}`} />
-                          <div>
-                            <p className="text-[10px] text-text-secondary font-mono uppercase tracking-wider font-semibold">代码审计评分</p>
-                            <p className={`text-sm font-bold font-mono ${filterLevel === "all" ? "text-accent-blue" : "text-[#10b981]"}`}>
-                              {reviewData.risks.filter(r => r.level === "high").length === 0 ? "A+ EXCELLENT" : "C- CAUTION"}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Main action suggestions items box */}
-                      <div className="bg-surface border border-border-custom rounded-2xl p-6 space-y-4">
-                        <div className="flex items-center justify-between pb-3 border-b border-border-custom">
-                          <div className="flex items-center gap-2">
-                            <Lightbulb className="w-4 h-4 text-accent-purple" />
-                            <span className="text-[11px] font-bold text-text-secondary uppercase tracking-widest">
-                              ACTIONABLE DEEP ADVICE / 安全改良提议
-                            </span>
-                          </div>
-                          <span className="bg-[#18181b] border border-border-custom text-text-secondary text-[10px] font-mono px-2 py-0.5 rounded">
-                            {reviewData.suggestions.filter(s => filterLevel === "all" || s.severity === filterLevel).length} 深度项
-                          </span>
-                        </div>
-
-                        {/* Suggestions Accordion */}
-                        <div className="space-y-3.5">
+                      {/* ── Tab: 改良建议 ── */}
+                      {dashTab === "suggestions" && (
+                        <div className="space-y-3" id="suggestions-list">
                           {reviewData.suggestions.filter(s => filterLevel === "all" || s.severity === filterLevel).length === 0 ? (
-                            <div className="text-center py-8 text-text-secondary text-sm font-mono bg-[#09090b] rounded-xl border border-border-custom/50">
-                              未发现当前类别的改良提议
+                            <div className="flex flex-col items-center justify-center py-16 text-center bg-surface border border-border-custom rounded-xl">
+                              <CheckCircle2 className="w-8 h-8 text-text-secondary/15 mb-3" />
+                              <p className="text-sm text-text-secondary/40">未发现当前类别的改良提议</p>
                             </div>
                           ) : (
                             reviewData.suggestions.map((suggestion, sIdx) => {
                               if (filterLevel !== "all" && suggestion.severity !== filterLevel) return null;
-                            const dictKey = `${suggestion.file}-${sIdx}`;
-                            const isApplied = appliedSuggestions[dictKey];
-                            const isExpanded = expandedSuggestion === sIdx;
+                              const dictKey = `${suggestion.file}-${sIdx}`;
+                              const isApplied = appliedSuggestions[dictKey];
+                              const isExpanded = expandAllSuggestions || expandedSuggestion === sIdx;
+                              const codeExpanded = expandedCodeBlocks[sIdx] ?? false;
 
-                            return (
-                              <div
-                                key={dictKey}
-                                className={`border border-border-custom rounded-xl overflow-hidden transition-all duration-300 ${
-                                  isExpanded ? "bg-[#141416]" : "bg-black/[0.15]"
-                                }`}
-                              >
-                                {/* Header of suggestion bar */}
+                              return (
                                 <div
-                                  onClick={() => setExpandedSuggestion(isExpanded ? null : sIdx)}
-                                  className="p-4 flex items-center justify-between cursor-pointer hover:bg-white/[0.01] select-none"
+                                  key={dictKey}
+                                  id={`suggestion-${sIdx}`}
+                                  className={`border rounded-xl overflow-hidden transition-all duration-300 ${
+                                    isExpanded 
+                                      ? "bg-surface border-border-custom" 
+                                      : "bg-[#1A1A1A] border-border-custom/60"
+                                  }`}
                                 >
-                                  <div className="flex items-start gap-3 pl-1">
-                                    <div className="mt-1">
-                                      {suggestion.severity === "critical" ? (
-                                        <span className="bg-red-500/20 text-red-400 text-[9px] font-bold font-mono px-1.5 py-0.5 rounded border border-red-500/30 uppercase">
-                                          严重
-                                        </span>
-                                      ) : suggestion.severity === "warning" ? (
-                                        <span className="bg-yellow-500/10 text-yellow-500 text-[9px] font-bold font-mono px-1.5 py-0.5 rounded border border-yellow-500/20 uppercase">
-                                          轻微
-                                        </span>
-                                      ) : (
-                                        <span className="bg-zinc-800 text-text-secondary text-[9px] font-mono px-1.5 py-0.5 rounded border border-zinc-700 uppercase">
-                                          贴议
-                                        </span>
-                                      )}
-                                    </div>
-
-                                    <div>
-                                      <h4 className="text-[13px] font-semibold text-text-primary flex items-center gap-1.5">
-                                        <span>{suggestion.title}</span>
-                                        {isApplied && (
-                                          <span className="text-[#10b981] bg-[#10b981]/15 text-[9px] px-1 py-0.2 rounded font-mono flex items-center gap-0.5">
-                                            <Check className="w-2.5 h-2.5" /> 已修复
+                                  {/* Suggestion Header */}
+                                  <div
+                                    onClick={() => setExpandedSuggestion(isExpanded ? null : sIdx)}
+                                    className="p-3.5 flex items-start justify-between cursor-pointer hover:bg-white/[0.02] select-none gap-3"
+                                  >
+                                    <div className="flex items-start gap-3 min-w-0">
+                                      <div className="mt-0.5 shrink-0">
+                                        {suggestion.severity === "critical" ? (
+                                          <span className="inline-flex items-center gap-1 bg-red-500/15 text-red-400 text-[9px] font-bold font-mono px-1.5 py-0.5 rounded border border-red-500/25 uppercase">
+                                            <AlertTriangle className="w-2.5 h-2.5" />严重
+                                          </span>
+                                        ) : suggestion.severity === "warning" ? (
+                                          <span className="inline-flex items-center gap-1 bg-yellow-500/10 text-yellow-400 text-[9px] font-bold font-mono px-1.5 py-0.5 rounded border border-yellow-500/20 uppercase">
+                                            <Info className="w-2.5 h-2.5" />警告
+                                          </span>
+                                        ) : (
+                                          <span className="inline-flex items-center gap-1 bg-zinc-800 text-text-secondary/60 text-[9px] font-mono px-1.5 py-0.5 rounded border border-zinc-700 uppercase">
+                                            建议
                                           </span>
                                         )}
-                                      </h4>
-                                      <p className="text-xs text-text-secondary mt-1 font-mono">
-                                        应用范围: <span className="text-accent-blue underline font-mono select-text">{suggestion.file}</span>
-                                      </p>
+                                      </div>
+                                      <div className="min-w-0">
+                                        <h4 className="text-[13px] font-semibold text-text-primary flex items-center gap-1.5">
+                                          <span className="truncate">{suggestion.title}</span>
+                                          {isApplied && (
+                                            <span className="text-emerald-400 bg-emerald-500/10 text-[9px] px-1.5 py-0.5 rounded font-mono flex items-center gap-0.5 shrink-0">
+                                              <Check className="w-2.5 h-2.5" /> 已修复
+                                            </span>
+                                          )}
+                                        </h4>
+                                        <p className="text-[10px] text-text-secondary/50 mt-1 font-mono truncate">
+                                          {suggestion.file}
+                                        </p>
+                                      </div>
+                                    </div>
+                                    <div className="text-text-secondary/40 shrink-0 mt-0.5">
+                                      {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                                     </div>
                                   </div>
 
-                                  <div className="text-text-secondary hover:text-text-primary">
-                                    {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                                  </div>
-                                </div>
+                                  {/* Expanded Content */}
+                                  {isExpanded && (
+                                    <div className="px-4 pb-4 pt-1 border-t border-border-custom/40 space-y-3">
+                                      {/* Description */}
+                                      <p className="text-xs text-text-secondary/80 leading-relaxed bg-black/20 p-3 rounded-lg">
+                                        {suggestion.description}
+                                      </p>
 
-                                {/* Expanded Description block */}
-                                {isExpanded && (
-                                  <div className="px-5 pb-5 pt-1 border-t border-border-custom/40 space-y-4">
-                                    {/* Brief summary */}
-                                    <p className="text-xs text-text-secondary leading-relaxed bg-zinc-900/30 p-3 rounded-lg border border-border-custom/50">
-                                      {suggestion.description}
-                                    </p>
+                                      {/* Code Diff — collapsed by default */}
+                                      <div className="space-y-1.5">
+                                        <div className="flex items-center justify-between">
+                                          <span className="text-[10px] text-text-secondary/50 font-mono uppercase">代码修复对比</span>
+                                          <div className="flex items-center gap-2">
+                                            <button 
+                                              onClick={(e) => { e.stopPropagation(); copyToClipboard(suggestion.revisedCode); }}
+                                              className="text-[10px] text-accent-blue/60 hover:text-accent-blue transition-colors"
+                                            >
+                                              复制修复代码
+                                            </button>
+                                            <button
+                                              onClick={(e) => { e.stopPropagation(); setExpandedCodeBlocks(prev => ({ ...prev, [sIdx]: !codeExpanded })); }}
+                                              className="text-[10px] text-text-secondary/40 hover:text-text-secondary/70 flex items-center gap-1 transition-colors"
+                                            >
+                                              {codeExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                                              {codeExpanded ? "收起代码" : "展开代码"}
+                                            </button>
+                                          </div>
+                                        </div>
 
-                                    {/* Code Diffs viewer component */}
-                                    <div className="space-y-2">
-                                      <div className="flex items-center justify-between text-[11px] text-text-secondary font-mono">
-                                        <span>DIFFERENCE MATRIX / 修复对比差异码:</span>
-                                        <button 
-                                          className="text-accent-blue hover:underline"
-                                          onClick={() => copyToClipboard(suggestion.revisedCode)}
+                                        {codeExpanded ? (
+                                          <div className="bg-[#050508] border border-border-custom rounded-xl overflow-hidden font-mono text-xs">
+                                            <div className="p-3.5 border-b border-border-custom/30 bg-red-950/10">
+                                              <div className="text-[10px] text-red-400/70 font-semibold uppercase mb-1.5">❌ 原始代码</div>
+                                              <pre className="text-red-300/80 whitespace-pre-wrap max-h-[240px] overflow-y-auto">
+                                                <code>{suggestion.originalCode}</code>
+                                              </pre>
+                                            </div>
+                                            <div className="p-3.5 bg-emerald-950/10">
+                                              <div className="text-[10px] text-emerald-400/70 font-semibold uppercase mb-1.5">✅ 修复方案</div>
+                                              <pre className="text-emerald-300/80 whitespace-pre-wrap max-h-[240px] overflow-y-auto">
+                                                <code>{suggestion.revisedCode.startsWith("+") ? "" : "+ "}{suggestion.revisedCode}</code>
+                                              </pre>
+                                            </div>
+                                          </div>
+                                        ) : (
+                                          <div className="bg-[#050508] border border-border-custom/50 rounded-xl p-3.5 flex items-center gap-3">
+                                            <FileCode className="w-4 h-4 text-text-secondary/30 shrink-0" />
+                                            <span className="text-[11px] text-text-secondary/40 font-mono truncate">
+                                              {suggestion.originalCode.slice(0, 80).replace(/\n/g, " ")}...
+                                            </span>
+                                            <span className="text-[10px] text-text-secondary/30 shrink-0">点击上方展开</span>
+                                          </div>
+                                        )}
+                                      </div>
+
+                                      {/* Architect Explanation */}
+                                      <div className="bg-black/20 p-3.5 rounded-xl border border-border-custom/30">
+                                        <h5 className="text-[10px] font-bold text-text-secondary/50 uppercase tracking-wider mb-1.5 font-mono">
+                                          危害机制原理
+                                        </h5>
+                                        <SummaryBlock text={suggestion.explanation} />
+                                      </div>
+
+                                      {/* Action Button */}
+                                      <div className="pt-1 flex justify-end">
+                                        <button
+                                          onClick={(e) => { e.stopPropagation(); handleApplySuggestion(suggestion, dictKey); }}
+                                          disabled={isApplied}
+                                          className={`px-4 py-2 rounded-lg text-xs font-semibold cursor-pointer transition-all ${
+                                            isApplied
+                                              ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 cursor-not-allowed"
+                                              : "bg-accent-blue hover:bg-blue-600 active:scale-95 text-white shadow-md shadow-blue-500/10"
+                                          }`}
                                         >
-                                          复制代码
+                                          {isApplied ? "✓ 已一键重构" : "✨ 一键重构修复"}
                                         </button>
                                       </div>
-
-                                      <div className="bg-[#050508] border border-border-custom rounded-xl overflow-hidden font-mono text-xs">
-                                        {/* Buggy block */}
-                                        <div className="p-3.5 border-b border-border-custom/30 bg-red-950/10">
-                                          <div className="text-[10px] text-red-400 font-mono font-semibold uppercase mb-1 flex items-center gap-1">
-                                            <span>OLD CODE BLOCK</span>
-                                          </div>
-                                          <pre className="text-red-300 whitespace-pre-wrap select-text pl-1 opacity-70">
-                                            <code>- {suggestion.originalCode}</code>
-                                          </pre>
-                                        </div>
-
-                                        {/* Revised dynamic patch */}
-                                        <div className="p-3.5 bg-[#10b981]/05">
-                                          <div className="text-[10px] text-[#10b981] font-mono font-semibold uppercase mb-1 flex items-center gap-1">
-                                            <span>PROPOSED FIX</span>
-                                          </div>
-                                          <pre className="text-[#2ecc71] whitespace-pre-wrap select-text pl-1">
-                                            <code>{suggestion.revisedCode.startsWith("+") ? "" : "+ "}{suggestion.revisedCode}</code>
-                                          </pre>
-                                        </div>
-                                      </div>
                                     </div>
+                                  )}
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+                      )}
 
-                                    {/* Deep engineer explanation */}
-                                    <div className="bg-zinc-900/40 p-4 rounded-xl border border-border-custom/30 space-y-1.5">
-                                      <h5 className="text-[11px] font-bold text-text-secondary uppercase tracking-wider font-mono">
-                                        Architect Explanation / 代码危害机制原理:
-                                      </h5>
-                                      <p className="text-xs text-text-primary leading-relaxed select-text">
-                                        {suggestion.explanation}
-                                      </p>
-                                    </div>
+                    </div>
 
-                                    {/* Action button */}
-                                    <div className="pt-2 flex justify-end gap-3 font-mono">
-                                      <button
-                                        onClick={() => handleApplySuggestion(suggestion, dictKey)}
-                                        disabled={isApplied}
-                                        className={`px-4 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-all ${
-                                          isApplied
-                                            ? "bg-[#10b981]/15 text-[#10b981] border border-[#10b981]/30 cursor-not-allowed"
-                                            : "bg-accent-blue hover:bg-blue-600 active:scale-95 text-white shadow-md shadow-blue-500/10"
-                                        }`}
-                                      >
-                                        {isApplied ? "已一键重构该缺陷" : "✨ 一键重构修复本处隐患"}
-                                      </button>
-                                    </div>
-                                  </div>
-                                )}
+                    {/* ── RIGHT: TOC sidebar ── */}
+                    {showToc && (
+                      <div className="w-[200px] shrink-0 hidden xl:block" id="toc-sidebar">
+                        <div className="bg-[#1A1A1A] border border-border-custom rounded-xl overflow-hidden flex flex-col max-h-[calc(100vh-260px)] sticky top-[72px]">
+                          <div className="px-3 py-2.5 border-b border-border-custom flex items-center justify-between">
+                            <div className="flex items-center gap-1.5">
+                              <ListTree className="w-3 h-3 text-text-secondary/40" />
+                              <span className="text-[10px] font-bold uppercase text-text-secondary/60 tracking-wider">问题目录</span>
+                            </div>
+                            <button onClick={() => setShowToc(false)} className="text-text-secondary/30 hover:text-text-secondary/60 transition-colors" title="隐藏目录">
+                              <PanelRightClose className="w-3 h-3" />
+                            </button>
+                          </div>
+                          <div className="overflow-y-auto flex-1 py-1">
+                            {reviewData.suggestions.map((s, i) => (
+                              <button
+                                key={i}
+                                onClick={() => {
+                                  setDashTab("suggestions");
+                                  setExpandedSuggestion(i);
+                                  setExpandedCodeBlocks(prev => ({ ...prev, [i]: true }));
+                                  setTimeout(() => {
+                                    const el = document.getElementById(`suggestion-${i}`);
+                                    if (el) {
+                                      el.scrollIntoView({ behavior: "smooth", block: "center" });
+                                    }
+                                  }, 150);
+                                }}
+                                className={`w-full text-left px-3 py-2 flex items-start gap-2 hover:bg-white/[0.03] transition-colors group ${
+                                  expandedSuggestion === i ? "bg-accent-blue/5" : ""
+                                }`}
+                              >
+                                <span className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${
+                                  s.severity === "critical" ? "bg-red-500 shadow-[0_0_4px_rgba(239,68,68,0.5)]" 
+                                  : s.severity === "warning" ? "bg-yellow-500" 
+                                  : "bg-zinc-500"
+                                }`} />
+                                <span className={`text-[10px] leading-snug line-clamp-2 transition-colors ${
+                                  expandedSuggestion === i ? "text-text-primary" : "text-text-secondary/50 group-hover:text-text-secondary/80"
+                                }`}>
+                                  {s.title}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* TOC toggle when hidden */}
+                    {!showToc && (
+                      <button
+                        onClick={() => setShowToc(true)}
+                        className="shrink-0 mt-2 text-text-secondary/30 hover:text-text-secondary/60 transition-colors hidden xl:block"
+                        title="显示目录"
+                      >
+                        <ListTree className="w-4 h-4" />
+                      </button>
+                    )}
+
+                  </div>
+
+                  {/* Mobile TOC — floating button + drawer */}
+                  <div className="xl:hidden fixed bottom-6 right-6 z-40">
+                    <button
+                      onClick={() => setShowToc(!showToc)}
+                      className={`w-11 h-11 rounded-full flex items-center justify-center shadow-lg transition-all ${
+                        showToc ? "bg-accent-blue text-white" : "bg-surface border border-border-custom text-text-secondary"
+                      }`}
+                    >
+                      <ListTree className="w-5 h-5" />
+                    </button>
+                  </div>
+                  {showToc && (
+                    <div className="xl:hidden fixed inset-0 z-30 flex justify-end" onClick={() => setShowToc(false)}>
+                      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+                      <div 
+                        className="relative w-[280px] h-full bg-[#131313] border-l border-border-custom overflow-y-auto drawer-slide-in"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="px-4 py-4 border-b border-border-custom flex items-center justify-between sticky top-0 bg-[#131313] z-10">
+                          <div className="flex items-center gap-2">
+                            <ListTree className="w-4 h-4 text-accent-blue" />
+                            <span className="text-xs font-bold text-text-primary uppercase tracking-wider">问题目录</span>
+                          </div>
+                          <button onClick={() => setShowToc(false)} className="text-text-secondary/50 hover:text-text-secondary">
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                        <div className="py-2">
+                          {reviewData.suggestions.map((s, i) => (
+                            <button
+                              key={i}
+                              onClick={() => {
+                                setDashTab("suggestions");
+                                setExpandedSuggestion(i);
+                                setExpandedCodeBlocks(prev => ({ ...prev, [i]: true }));
+                                setShowToc(false);
+                                setTimeout(() => {
+                                  const el = document.getElementById(`suggestion-${i}`);
+                                  if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+                                }, 300);
+                              }}
+                              className="w-full text-left px-4 py-3 flex items-start gap-3 hover:bg-white/[0.03] transition-colors border-b border-border-custom/30"
+                            >
+                              <span className={`w-2 h-2 rounded-full mt-1 shrink-0 ${
+                                s.severity === "critical" ? "bg-red-500" : s.severity === "warning" ? "bg-yellow-500" : "bg-zinc-500"
+                              }`} />
+                              <div className="min-w-0">
+                                <p className="text-xs text-text-primary font-medium leading-snug">{s.title}</p>
+                                <p className="text-[10px] text-text-secondary/40 mt-0.5 font-mono truncate">{s.file}</p>
                               </div>
-                            );
-                          })
-                        )}
+                            </button>
+                          ))}
                         </div>
                       </div>
                     </div>
-
-                  </div>
+                  )}
                 </div>
               )}
 
@@ -1102,7 +1627,7 @@ export default function App() {
                         <div className="pb-2 border-b border-border-custom flex items-center gap-2">
                           <Folder className="w-4 h-4 text-accent-blue" />
                           <span className="text-[11px] font-bold text-text-secondary tracking-widest uppercase">
-                            SANDBOX FILES
+                            沙盒文件
                           </span>
                         </div>
 
@@ -1148,7 +1673,7 @@ export default function App() {
                     <div className="lg:col-span-9 flex flex-col bg-surface border border-border-custom rounded-2xl overflow-hidden">
                       
                       {/* Editor tab top bar */}
-                      <div className="px-5 py-3 border-b border-border-custom bg-[#09090b] flex items-center justify-between text-xs font-mono">
+                      <div className="px-5 py-3 border-b border-border-custom bg-[#121212] flex items-center justify-between text-xs font-mono">
                         <div className="flex items-center gap-2">
                           <div className="flex items-center gap-1.5 mr-2">
                             <span className="w-3 h-3 rounded-full bg-red-500/80"></span>
@@ -1157,7 +1682,7 @@ export default function App() {
                           </div>
                           <span className="text-accent-blue">{activeSandboxFilename}</span>
                         </div>
-                        <span className="text-text-secondary text-[11px]">EDITABLE ACTIVE PLAYGROUND</span>
+                        <span className="text-text-secondary text-[11px]">沙盒在线演练场</span>
                       </div>
 
                       {/* Editor Canvas Area */}
@@ -1170,7 +1695,7 @@ export default function App() {
                       </div>
 
                       {/* Editor Action buttons bottom tray */}
-                      <div className="px-6 py-4 border-t border-border-custom bg-[#09090b] flex items-center justify-between font-mono text-xs">
+                      <div className="px-6 py-4 border-t border-border-custom bg-[#121212] flex items-center justify-between font-mono text-xs">
                         <button
                           className="px-4 py-2 bg-surface hover:bg-zinc-800 active:scale-95 text-text-secondary hover:text-text-primary rounded-lg border border-border-custom transition-all flex items-center gap-1.5 cursor-pointer"
                           onClick={() => {
@@ -1361,7 +1886,7 @@ export default function App() {
       </main>
 
       {/* Modern Web Footer */}
-      <footer className="mt-auto border-t border-border-custom bg-[#09090b]">
+      <footer className="mt-auto border-t border-border-custom bg-[#121212]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-12 flex flex-col md:flex-row items-center justify-between font-sans text-xs text-text-secondary gap-4">
           <div className="flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-accent-purple" />

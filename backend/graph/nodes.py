@@ -25,6 +25,7 @@ import json
 
 from graph.state import PRAnalysisState
 from graph.tool.github import parse_pr_url, fetch_pr_info, fetch_pr_files, is_risky_file, fetch_file_context, GitHubAPIError
+import httpx
 from graph.tool.llm import (
     generate_summary,
     analyze_comprehensive,
@@ -55,8 +56,13 @@ async def parse_pr_node(state: PRAnalysisState) -> dict:
             }
         except GitHubAPIError:
             raise  # 透传，让 router 层处理
+        except httpx.TimeoutException:
+            return {"error": "GitHub API 请求超时，请检查网络连接或稍后重试。如使用私有仓库，请确保已填写 GitHub Access Token。"}
+        except httpx.ConnectError:
+            return {"error": "无法连接 GitHub API，请检查后端服务器的网络连接和代理配置。"}
         except Exception as e:
-            return {"error": f"GitHub API 获取 PR 信息失败: {str(e)}"}
+            detail = str(e) or repr(e)
+            return {"error": f"GitHub API 获取 PR 信息失败: {detail}"}
     else:
         return {
             "repo": "sandbox/playground",
@@ -86,8 +92,13 @@ async def fetch_diff_node(state: PRAnalysisState) -> dict:
             return {"changed_files": files, "files_count": len(files)}
         except GitHubAPIError:
             raise  # 透传，让 router 层处理
+        except httpx.TimeoutException:
+            return {"error": "GitHub API 请求超时，无法获取代码差异。请检查网络连接或稍后重试。如使用私有仓库，请确保已填写 GitHub Access Token。"}
+        except httpx.ConnectError:
+            return {"error": "无法连接 GitHub API，请检查后端服务器的网络连接和代理配置。"}
         except Exception as e:
-            return {"error": f"GitHub API 获取 diff 失败: {str(e)}"}
+            detail = str(e) or repr(e)
+            return {"error": f"GitHub API 获取 diff 失败: {detail}"}
     elif sandbox_files:
         mapped = [
             {"filename": f.get("filename", ""), "content": f.get("content", ""), "patch": ""}
@@ -111,13 +122,19 @@ async def context_builder_node(state: PRAnalysisState) -> dict:
         return {"risky_files": [], "context_data": {}}
 
     # 筛选风险文件
-    risky_files = [
+    all_risky = [
         f for f in changed_files
         if is_risky_file(f.get("filename", ""), f.get("patch", ""))
     ]
     # 如果无风险文件则全部标记（保守策略）
-    if not risky_files:
-        risky_files = changed_files[:5]
+    if not all_risky:
+        all_risky = changed_files[:5]
+
+    # 性能优化: 仅取 ~50% 文件送 LLM 深度分析（前端仍展示全量文件）
+    import math
+    total = len(changed_files)
+    max_analyze = max(5, math.ceil(total * 0.5))
+    risky_files = all_risky[:max_analyze]
 
     # 对风险文件拉完整上下文
     pr_url = state.get("pr_url", "") or ""

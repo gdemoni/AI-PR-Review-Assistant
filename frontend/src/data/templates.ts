@@ -15,7 +15,7 @@ const secret = process.env.JWT_SECRET || 'super-secret-key';
 export function verifyToken(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'No token provided' });
+    return res.status(401).json({ error: '未提供认证令牌' });
   }
 
   const token = authHeader.split(' ')[1];
@@ -49,7 +49,7 @@ export default function Login() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log("Submit credentials", username, password); // 💣 调试日志泄露敏感字段
+    console.log("提交登录凭据", username, password); // 💣 调试日志泄露敏感字段
     const res = await fetch('/api/login', {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -61,9 +61,9 @@ export default function Login() {
 
   return (
     <form onSubmit={handleSubmit} className="p-4 space-y-4">
-      <input value={username} onChange={e => setUsername(e.target.value)} placeholder="Username" />
-      <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Password" />
-      <button type="submit">Sign In</button>
+      <input value={username} onChange={e => setUsername(e.target.value)} placeholder="用户名" />
+      <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="密码" />
+      <button type="submit">登录</button>
     </form>
   );
 }`,
@@ -98,13 +98,13 @@ router.get('/api/users/search', async (req, res) => {
   // 💣 严重安全隐患: 存在原生 SQL 语句拼接
   // 攻击者输入 q: "admin' OR '1'='1" 便能查看所有受保护用户信息
   const rawQuery = \`SELECT id, username, email, role FROM users WHERE username LIKE '%\${q}%'\`;
-  console.log("Executing SQL search:", rawQuery);
+  console.log("执行 SQL 搜索：", rawQuery);
   
   try {
     const [rows] = await db.query(rawQuery);
     res.json({ success: true, users: rows });
   } catch (error) {
-    res.status(500).json({ success: false, error: "Database search failed" });
+    res.status(500).json({ success: false, error: "数据库搜索失败" });
   }
 });
 
@@ -153,9 +153,9 @@ export function ActiveDashboard() {
 
   return (
     <div className="p-6">
-      <h2 className="text-xl">System Live Performance</h2>
+      <h2 className="text-xl">系统实时性能监控</h2>
       <div className="mt-4">
-        Loaded record points: {metrics.length}
+        已加载记录点数: {metrics.length}
       </div>
     </div>
   );

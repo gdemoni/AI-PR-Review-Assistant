@@ -20,9 +20,30 @@ class GitHubAPIError(Exception):
         self.needs_token = needs_token
 
 
-def _build_github_error(status_code: int, has_token: bool, repo: str = "") -> GitHubAPIError:
+def _build_github_error(status_code: int, has_token: bool, repo: str = "", body: dict | None = None) -> GitHubAPIError:
     """根据 HTTP 状态码和 Token 状态生成精准错误"""
     repo_hint = f"（仓库 {repo}）" if repo else ""
+    # 尝试从响应体提取 GitHub 原始错误信息
+    api_msg = ""
+    if body and isinstance(body, dict):
+        api_msg = body.get("message", "")
+
+    # 检测速率限制（未认证 60次/h，认证 5000次/h）
+    is_rate_limit = (
+        status_code == 403 and
+        ("rate limit" in api_msg.lower() or "api rate limit" in api_msg.lower() or "secondary rate" in api_msg.lower())
+    ) or status_code == 429
+
+    if is_rate_limit:
+        if has_token:
+            return GitHubAPIError(
+                f"GitHub API 速率限制{repo_hint}，您的 Token 请求频率已达上限，请稍后重试",
+                status_code=status_code, needs_token=False)
+        else:
+            return GitHubAPIError(
+                f"GitHub API 速率限制{repo_hint}，未认证请求限额仅 60 次/小时，请填写 GitHub Access Token 提升至 5000 次/小时",
+                status_code=status_code, needs_token=True)
+
     if status_code == 404:
         if has_token:
             return GitHubAPIError(
@@ -34,15 +55,17 @@ def _build_github_error(status_code: int, has_token: bool, repo: str = "") -> Gi
                 status_code=404, needs_token=True)
     elif status_code == 401:
         return GitHubAPIError(
-            f"GitHub Token 无效或已过期{repo_hint}",
+            f"GitHub Token 无效或已过期{repo_hint}，请重新生成",
             status_code=401, needs_token=True)
     elif status_code == 403:
+        detail = f"，原因: {api_msg}" if api_msg else ""
         return GitHubAPIError(
-            f"GitHub Token 权限不足{repo_hint}，需要 repo scope",
+            f"GitHub Token 权限不足{repo_hint}{detail}，需要 repo scope",
             status_code=403, needs_token=True)
     else:
+        detail = f"，详情: {api_msg}" if api_msg else ""
         return GitHubAPIError(
-            f"GitHub API 返回 {status_code} 错误{repo_hint}",
+            f"GitHub API 返回 {status_code} 错误{repo_hint}{detail}",
             status_code=status_code, needs_token=False)
 
 # ============================================================
@@ -110,7 +133,12 @@ async def fetch_pr_info(owner: str, repo: str, pr_number: str, token: Optional[s
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.get(url, headers=_auth_headers(token))
         if resp.status_code != 200:
-            raise _build_github_error(resp.status_code, has_token, f"{owner}/{repo}")
+            body = None
+            try:
+                body = resp.json()
+            except Exception:
+                pass
+            raise _build_github_error(resp.status_code, has_token, f"{owner}/{repo}", body)
         pr_data = resp.json()
         return {
             "title": pr_data.get("title", ""),
@@ -133,7 +161,12 @@ async def fetch_pr_files(owner: str, repo: str, pr_number: str, token: Optional[
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.get(url, headers=_auth_headers(token))
         if resp.status_code != 200:
-            raise _build_github_error(resp.status_code, has_token, f"{owner}/{repo}")
+            body = None
+            try:
+                body = resp.json()
+            except Exception:
+                pass
+            raise _build_github_error(resp.status_code, has_token, f"{owner}/{repo}", body)
         files_data = resp.json()
 
         changed_files = []
